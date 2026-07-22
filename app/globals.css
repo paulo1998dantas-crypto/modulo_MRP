@@ -456,7 +456,7 @@ textarea {
   z-index: 5;
   display: grid;
   align-content: center;
-  min-height: 54px;
+  min-height: 92px;
   border-right: 1px solid #ccd5c9;
   border-bottom: 1px solid #ccd5c9;
   background: #e8eee6;
@@ -485,9 +485,28 @@ textarea {
   top: 0;
   z-index: 4;
   display: grid;
-  min-height: 54px;
+  grid-template-rows: 24px 42px 26px;
+  min-height: 92px;
   border-bottom: 1px solid #ccd5c9;
   background: #e8eee6;
+}
+
+.cm25-week-row,
+.cm25-day-row,
+.cm25-hour-row {
+  display: grid;
+}
+
+.cm25-week {
+  display: grid;
+  align-items: center;
+  border-right: 1px solid #b9c4b5;
+  border-bottom: 1px solid #ccd5c9;
+  background: #dde7da;
+  color: #1d2a22;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .cm25-day {
@@ -495,7 +514,8 @@ textarea {
   align-content: center;
   gap: 2px;
   border-right: 1px solid #cbd3c5;
-  padding: 8px 10px;
+  border-bottom: 1px solid #d9ddcf;
+  padding: 5px 10px;
 }
 
 .cm25-day.off {
@@ -520,6 +540,30 @@ textarea {
   color: #667165;
   font-size: 11px;
   font-weight: 800;
+}
+
+.cm25-hour-day {
+  display: grid;
+  align-items: center;
+  border-right: 1px solid #cbd3c5;
+  background: #f6f8f3;
+}
+
+.cm25-hour-day.off {
+  background: #eceee8;
+}
+
+.cm25-hour-day span {
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid rgba(102, 113, 101, 0.18);
+  color: #526055;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cm25-row-shell {

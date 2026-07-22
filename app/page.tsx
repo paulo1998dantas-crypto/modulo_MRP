@@ -1084,6 +1084,10 @@ function weekLabel(date: Date) {
   return `S${Math.ceil((days + first.getDay() + 1) / 7)}`;
 }
 
+function weekRangeLabel(date: Date) {
+  return `${weekLabel(date)} · ${date.getFullYear()}`;
+}
+
 function startOfDay(date: Date) {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
@@ -1111,6 +1115,16 @@ function formatHour(date: Date) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function calendarTimeMarks(calendar: CalendarConfig) {
+  const marks = [
+    calendar.dayStart,
+    calendar.lunchStart,
+    calendar.lunchEnd,
+    calendar.dayEnd,
+  ].filter(hasTimeValue);
+  return [...new Set(marks)].sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
 }
 
 function formatDuration(minutes: number) {
@@ -1282,6 +1296,22 @@ export default function Home() {
       width: Math.max(960, ganttDays.length * 150),
     };
   }, [ganttBounds.start, ganttDays]);
+
+  const ganttWeekGroups = useMemo(() => {
+    const groups: Array<{ key: string; label: string; days: number }> = [];
+    ganttDays.forEach((day) => {
+      const key = weekRangeLabel(day);
+      const current = groups[groups.length - 1];
+      if (current?.key === key) {
+        current.days += 1;
+      } else {
+        groups.push({ key, label: key, days: 1 });
+      }
+    });
+    return groups;
+  }, [ganttDays]);
+
+  const ganttHourMarks = useMemo(() => calendarTimeMarks(calendar), [calendar]);
 
   const selectedOperations = useMemo(
     () =>
@@ -1690,18 +1720,56 @@ export default function Home() {
                 className="cm25-timeline-head"
                 style={{
                   width: `${ganttScale.width}px`,
-                  gridTemplateColumns: `repeat(${ganttDays.length}, 150px)`,
                 }}
               >
-                {ganttDays.map((day) => (
-                  <div
-                    className={isWorkingDay(day, calendar) ? "cm25-day" : "cm25-day off"}
-                    key={dayKey(day)}
-                  >
-                    <strong>{formatDayHeader(day)}</strong>
-                    <span>{weekLabel(day)}</span>
-                  </div>
-                ))}
+                <div
+                  className="cm25-week-row"
+                  style={{
+                    gridTemplateColumns: ganttWeekGroups
+                      .map((group) => `${group.days * 150}px`)
+                      .join(" "),
+                  }}
+                >
+                  {ganttWeekGroups.map((group) => (
+                    <div className="cm25-week" key={group.key}>
+                      {group.label}
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="cm25-day-row"
+                  style={{ gridTemplateColumns: `repeat(${ganttDays.length}, 150px)` }}
+                >
+                  {ganttDays.map((day) => (
+                    <div
+                      className={isWorkingDay(day, calendar) ? "cm25-day" : "cm25-day off"}
+                      key={dayKey(day)}
+                    >
+                      <strong>{formatDayHeader(day)}</strong>
+                      <span>{isWorkingDay(day, calendar) ? "produtivo" : "sem produção"}</span>
+                    </div>
+                  ))}
+                </div>
+                <div
+                  className="cm25-hour-row"
+                  style={{ gridTemplateColumns: `repeat(${ganttDays.length}, 150px)` }}
+                >
+                  {ganttDays.map((day) => (
+                    <div
+                      className={isWorkingDay(day, calendar) ? "cm25-hour-day" : "cm25-hour-day off"}
+                      key={`hours-${dayKey(day)}`}
+                      style={{
+                        gridTemplateColumns: `repeat(${Math.max(1, ganttHourMarks.length)}, 1fr)`,
+                      }}
+                    >
+                      {isWorkingDay(day, calendar) ? (
+                        ganttHourMarks.map((hour) => <span key={`${dayKey(day)}-${hour}`}>{hour}</span>)
+                      ) : (
+                        <span>parado</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {stages.map((stage) => {
