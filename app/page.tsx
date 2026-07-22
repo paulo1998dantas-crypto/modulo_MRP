@@ -48,9 +48,13 @@ type TimeRule = {
 type CalendarConfig = {
   startDate: string;
   dayStart: string;
-  hoursPerDay: number;
+  dayEnd: string;
+  lunchStart: string;
+  lunchEnd: string;
   workingDays: number[];
   holidays: string;
+  calendarYear: number;
+  calendarMonth: number;
   completeFlow: boolean;
 };
 
@@ -124,14 +128,18 @@ const stageDependencies: Record<Stage, Stage[]> = {
   ],
 };
 
-const STATE_VERSION = "process-dependencies-2026-07-22";
+const STATE_VERSION = "calendar-capacity-2026-07-22";
 
 const initialCalendar: CalendarConfig = {
   startDate: "2026-07-22",
   dayStart: "07:30",
-  hoursPerDay: 8.8,
+  dayEnd: "17:18",
+  lunchStart: "12:00",
+  lunchEnd: "13:00",
   workingDays: [1, 2, 3, 4, 5],
   holidays: "2026-07-25",
+  calendarYear: 2026,
+  calendarMonth: 6,
   completeFlow: false,
 };
 
@@ -752,44 +760,106 @@ function dayKey(date: Date) {
   return toDateInput(date);
 }
 
+function timeToMinutes(value: string) {
+  const [hour = 0, minute = 0] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function setTimeFromMinutes(date: Date, minutes: number) {
+  const copy = new Date(date);
+  copy.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return copy;
+}
+
+function productiveMinutesPerDay(calendar: CalendarConfig) {
+  const dayStart = timeToMinutes(calendar.dayStart);
+  const dayEnd = timeToMinutes(calendar.dayEnd);
+  const lunchStart = timeToMinutes(calendar.lunchStart);
+  const lunchEnd = timeToMinutes(calendar.lunchEnd);
+  const base = Math.max(0, dayEnd - dayStart);
+  const lunch =
+    lunchEnd > lunchStart
+      ? Math.max(0, Math.min(dayEnd, lunchEnd) - Math.max(dayStart, lunchStart))
+      : 0;
+  return Math.max(0, base - lunch);
+}
+
+function holidaySet(calendar: CalendarConfig) {
+  return new Set(
+    calendar.holidays
+      .split(/[\s,;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
 function getStartDate(calendar: CalendarConfig) {
-  const [hour, minute] = calendar.dayStart.split(":").map(Number);
   const start = parseDate(calendar.startDate);
-  start.setHours(hour || 7, minute || 0, 0, 0);
+  const dayStart = timeToMinutes(calendar.dayStart);
+  start.setHours(Math.floor(dayStart / 60), dayStart % 60, 0, 0);
   return nextWorkingMinute(start, calendar);
 }
 
 function isWorkingDay(date: Date, calendar: CalendarConfig) {
-  const holidays = calendar.holidays
-    .split(/[\s,;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
   return (
     calendar.workingDays.includes(date.getDay()) &&
-    !holidays.includes(dayKey(date))
+    !holidaySet(calendar).has(dayKey(date))
   );
 }
 
-function dayBounds(date: Date, calendar: CalendarConfig) {
-  const [hour, minute] = calendar.dayStart.split(":").map(Number);
-  const start = new Date(date);
-  start.setHours(hour || 7, minute || 0, 0, 0);
-  const end = new Date(start.getTime() + calendar.hoursPerDay * 60 * 60 * 1000);
-  return { start, end };
+function workingIntervals(date: Date, calendar: CalendarConfig) {
+  if (!isWorkingDay(date, calendar)) return [];
+
+  const dayStart = timeToMinutes(calendar.dayStart);
+  const dayEnd = timeToMinutes(calendar.dayEnd);
+  const lunchStart = timeToMinutes(calendar.lunchStart);
+  const lunchEnd = timeToMinutes(calendar.lunchEnd);
+  if (dayEnd <= dayStart) return [];
+
+  const intervals: Array<{ start: Date; end: Date }> = [];
+  const hasLunch = lunchEnd > lunchStart && lunchStart < dayEnd && lunchEnd > dayStart;
+  if (!hasLunch) {
+    intervals.push({
+      start: setTimeFromMinutes(date, dayStart),
+      end: setTimeFromMinutes(date, dayEnd),
+    });
+    return intervals;
+  }
+
+  const firstEnd = Math.max(dayStart, Math.min(dayEnd, lunchStart));
+  const secondStart = Math.min(dayEnd, Math.max(dayStart, lunchEnd));
+  if (firstEnd > dayStart) {
+    intervals.push({
+      start: setTimeFromMinutes(date, dayStart),
+      end: setTimeFromMinutes(date, firstEnd),
+    });
+  }
+  if (dayEnd > secondStart) {
+    intervals.push({
+      start: setTimeFromMinutes(date, secondStart),
+      end: setTimeFromMinutes(date, dayEnd),
+    });
+  }
+  return intervals;
+}
+
+function nextCalendarDayStart(date: Date, calendar: CalendarConfig) {
+  const cursor = new Date(date);
+  cursor.setDate(cursor.getDate() + 1);
+  const dayStart = timeToMinutes(calendar.dayStart);
+  cursor.setHours(Math.floor(dayStart / 60), dayStart % 60, 0, 0);
+  return cursor;
 }
 
 function nextWorkingMinute(date: Date, calendar: CalendarConfig): Date {
   let cursor = new Date(date);
   for (let guard = 0; guard < 370; guard += 1) {
-    const bounds = dayBounds(cursor, calendar);
-    if (!isWorkingDay(cursor, calendar) || cursor >= bounds.end) {
-      cursor = new Date(cursor);
-      cursor.setDate(cursor.getDate() + 1);
-      cursor = dayBounds(cursor, calendar).start;
-      continue;
+    const intervals = workingIntervals(cursor, calendar);
+    for (const interval of intervals) {
+      if (cursor < interval.start) return interval.start;
+      if (cursor < interval.end) return cursor;
     }
-    if (cursor < bounds.start) return bounds.start;
-    return cursor;
+    cursor = nextCalendarDayStart(cursor, calendar);
   }
   return cursor;
 }
@@ -800,8 +870,14 @@ function addWorkMinutes(date: Date, minutes: number, calendar: CalendarConfig) {
 
   while (remaining > 0) {
     cursor = nextWorkingMinute(cursor, calendar);
-    const { end } = dayBounds(cursor, calendar);
-    const available = Math.max(0, (end.getTime() - cursor.getTime()) / 60000);
+    const interval = workingIntervals(cursor, calendar).find(
+      (item) => cursor >= item.start && cursor < item.end
+    );
+    if (!interval) {
+      cursor = nextCalendarDayStart(cursor, calendar);
+      continue;
+    }
+    const available = Math.max(0, (interval.end.getTime() - cursor.getTime()) / 60000);
     const used = Math.min(available, remaining);
     cursor = new Date(cursor.getTime() + used * 60000);
     remaining -= used;
@@ -955,6 +1031,31 @@ function formatHour(date: Date) {
   }).format(date);
 }
 
+function monthName(monthIndex: number) {
+  return new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
+    new Date(2026, monthIndex, 1)
+  );
+}
+
+function monthDates(year: number, month: number) {
+  const dates: Date[] = [];
+  const first = new Date(year, month, 1);
+  const startPadding = first.getDay();
+  for (let i = startPadding; i > 0; i -= 1) {
+    dates.push(new Date(year, month, 1 - i));
+  }
+  const cursor = new Date(year, month, 1);
+  while (cursor.getMonth() === month) {
+    dates.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  while (dates.length % 7 !== 0) {
+    const next = addDays(dates[dates.length - 1], 1);
+    dates.push(next);
+  }
+  return dates;
+}
+
 export default function Home() {
   const [orders, setOrders] = useState<Order[]>(uploadedSequenceOrders);
   const [rules, setRules] = useState<TimeRule[]>(initialRules);
@@ -991,6 +1092,19 @@ export default function Home() {
     );
   }, [orders, rules, calendar]);
 
+  const selectedMonthDates = useMemo(
+    () => monthDates(calendar.calendarYear, calendar.calendarMonth),
+    [calendar.calendarMonth, calendar.calendarYear]
+  );
+
+  const holidayDates = useMemo(() => holidaySet(calendar), [calendar]);
+
+  const monthlyStops = selectedMonthDates.filter(
+    (date) =>
+      date.getMonth() === calendar.calendarMonth &&
+      (!calendar.workingDays.includes(date.getDay()) || holidayDates.has(dayKey(date)))
+  ).length;
+
   const filteredOrders = useMemo(() => {
     if (filter === "todos") return orders;
     return orders.filter((order) => normalize(order.line) === normalize(filter));
@@ -1015,8 +1129,12 @@ export default function Home() {
       const minutes = operations
         .filter((operation) => operation.stage === stage)
         .reduce((total, operation) => total + operation.minutes, 0);
-      const workingDays = countWorkingDays(getStartDate(calendar), addWorkMinutes(getStartDate(calendar), 10 * 24 * 60, calendar), calendar);
-      const available = workingDays * calendar.hoursPerDay * 60;
+      const workingDays = countWorkingDays(
+        getStartDate(calendar),
+        addWorkMinutes(getStartDate(calendar), 10 * 24 * 60, calendar),
+        calendar
+      );
+      const available = workingDays * productiveMinutesPerDay(calendar);
       return {
         stage,
         minutes,
@@ -1153,6 +1271,26 @@ export default function Home() {
     setCalendar(initialCalendar);
   }
 
+  function toggleHoliday(date: Date) {
+    const key = dayKey(date);
+    const next = new Set(holidayDates);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setCalendar({
+      ...calendar,
+      holidays: [...next].sort().join(", "),
+    });
+  }
+
+  function shiftCalendarMonth(direction: number) {
+    const next = new Date(calendar.calendarYear, calendar.calendarMonth + direction, 1);
+    setCalendar({
+      ...calendar,
+      calendarYear: next.getFullYear(),
+      calendarMonth: next.getMonth(),
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f7f4] text-[#1d241f]">
       <section className="border-b border-[#d9ddcf] bg-[#fbfcf8]">
@@ -1208,15 +1346,32 @@ export default function Home() {
               />
             </label>
             <label>
-              Horas/dia
+              Saída
               <input
-                min="1"
-                max="24"
-                step="0.1"
-                type="number"
-                value={calendar.hoursPerDay}
+                type="time"
+                value={calendar.dayEnd}
                 onChange={(event) =>
-                  setCalendar({ ...calendar, hoursPerDay: Number(event.target.value) })
+                  setCalendar({ ...calendar, dayEnd: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              Almoço início
+              <input
+                type="time"
+                value={calendar.lunchStart}
+                onChange={(event) =>
+                  setCalendar({ ...calendar, lunchStart: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              Almoço fim
+              <input
+                type="time"
+                value={calendar.lunchEnd}
+                onChange={(event) =>
+                  setCalendar({ ...calendar, lunchEnd: event.target.value })
                 }
               />
             </label>
@@ -1274,6 +1429,81 @@ export default function Home() {
               placeholder="2026-07-25, 2026-08-01"
             />
           </label>
+          <div className="calendar-editor">
+            <div className="calendar-editor-head">
+              <button type="button" onClick={() => shiftCalendarMonth(-1)}>
+                ‹
+              </button>
+              <strong>
+                {monthName(calendar.calendarMonth)} {calendar.calendarYear}
+              </strong>
+              <button type="button" onClick={() => shiftCalendarMonth(1)}>
+                ›
+              </button>
+            </div>
+            <div className="form-grid compact">
+              <label>
+                Mês
+                <select
+                  value={calendar.calendarMonth}
+                  onChange={(event) =>
+                    setCalendar({ ...calendar, calendarMonth: Number(event.target.value) })
+                  }
+                >
+                  {Array.from({ length: 12 }, (_, index) => (
+                    <option key={index} value={index}>
+                      {monthName(index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Ano
+                <input
+                  type="number"
+                  min="2026"
+                  max="2040"
+                  value={calendar.calendarYear}
+                  onChange={(event) =>
+                    setCalendar({ ...calendar, calendarYear: Number(event.target.value) })
+                  }
+                />
+              </label>
+            </div>
+            <div className="calendar-weeknames">
+              {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => (
+                <span key={`${day}-${index}`}>{day}</span>
+              ))}
+            </div>
+            <div className="calendar-month-grid">
+              {selectedMonthDates.map((date) => {
+                const key = dayKey(date);
+                const inMonth = date.getMonth() === calendar.calendarMonth;
+                const regularOff = !calendar.workingDays.includes(date.getDay());
+                const explicitOff = holidayDates.has(key);
+                const productive = inMonth && !regularOff && !explicitOff;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={[
+                      "calendar-day",
+                      inMonth ? "" : "muted",
+                      productive ? "productive" : "off",
+                      explicitOff ? "explicit" : "",
+                    ].join(" ")}
+                    onClick={() => inMonth && toggleHoliday(date)}
+                  >
+                    <span>{date.getDate()}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="calendar-summary">
+              <span>{(productiveMinutesPerDay(calendar) / 60).toFixed(1)}h produtivas/dia</span>
+              <span>{monthlyStops} dias sem produção no mês</span>
+            </div>
+          </div>
           <label className="switch-row">
             <input
               type="checkbox"
@@ -1322,6 +1552,8 @@ export default function Home() {
             <div className="cm25-legend" aria-label="Legenda do Gantt">
               <b>CM25</b>
               <span>Barra = pedido + processo</span>
+              <span className="legend-off">Sem produção</span>
+              <span className="legend-lunch">Almoço</span>
               <span className="legend-late">Atraso</span>
             </div>
           </div>
@@ -1376,6 +1608,44 @@ export default function Home() {
                         backgroundSize: "150px 100%, 100% 100%",
                       }}
                     >
+                      {ganttDays.map((day, index) => {
+                        if (isWorkingDay(day, calendar)) return null;
+                        return (
+                          <span
+                            aria-hidden="true"
+                            className="cm25-off-column"
+                            key={`off-${stage}-${dayKey(day)}`}
+                            style={{ left: `${index * 150}px`, width: "150px" }}
+                          />
+                        );
+                      })}
+                      {ganttDays.map((day) => {
+                        if (!isWorkingDay(day, calendar)) return null;
+                        const lunchStart = timeToMinutes(calendar.lunchStart);
+                        const lunchEnd = timeToMinutes(calendar.lunchEnd);
+                        if (lunchEnd <= lunchStart) return null;
+                        const lunchStartDate = setTimeFromMinutes(day, lunchStart);
+                        const lunchEndDate = setTimeFromMinutes(day, lunchEnd);
+                        const left =
+                          ((lunchStartDate.getTime() - ganttScale.start.getTime()) /
+                            ganttScale.span) *
+                          ganttScale.width;
+                        const width =
+                          ((lunchEndDate.getTime() - lunchStartDate.getTime()) /
+                            ganttScale.span) *
+                          ganttScale.width;
+                        return (
+                          <span
+                            aria-hidden="true"
+                            className="cm25-lunch-column"
+                            key={`lunch-${stage}-${dayKey(day)}`}
+                            style={{
+                              left: `${Math.max(0, left)}px`,
+                              width: `${Math.max(4, width)}px`,
+                            }}
+                          />
+                        );
+                      })}
                       {laneOps.map((operation) => {
                         const left =
                           ((operation.start.getTime() - ganttScale.start.getTime()) /
