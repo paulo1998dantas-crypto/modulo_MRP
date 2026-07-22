@@ -111,8 +111,23 @@ textarea {
   text-transform: none;
 }
 
+input[aria-invalid="true"] {
+  border-color: #be123c;
+  background: #fff7f7;
+}
+
 textarea {
   resize: vertical;
+}
+
+.calendar-warning {
+  margin-top: 10px;
+  border: 1px solid #fecdd3;
+  background: #fff1f2;
+  color: #9f1239;
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .weekday-grid {
@@ -602,10 +617,11 @@ textarea {
   top: 10px;
   z-index: 3;
   display: flex;
-  min-height: 37px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  min-height: 40px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.82);
   color: #ffffff;
@@ -622,12 +638,12 @@ textarea {
 }
 
 .cm25-op strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .cm25-op span {
-  flex: 0 0 auto;
+  max-width: 100%;
   font-size: 10px;
   font-weight: 800;
   opacity: 0.92;

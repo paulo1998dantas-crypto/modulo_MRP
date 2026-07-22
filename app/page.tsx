@@ -63,6 +63,7 @@ type Operation = {
   id: string;
   orderId: number;
   item: string;
+  os: string;
   customer: string;
   stage: Stage;
   line: string;
@@ -816,6 +817,28 @@ function productiveMinutesPerDay(calendar: CalendarConfig) {
   return Math.max(0, base - lunch);
 }
 
+function hasTimeValue(value: string) {
+  return /^\d{2}:\d{2}$/.test(value);
+}
+
+function calendarValidationMessage(calendar: CalendarConfig) {
+  const dayStart = timeToMinutes(calendar.dayStart);
+  const dayEnd = timeToMinutes(calendar.dayEnd);
+  if (!hasTimeValue(calendar.dayStart) || !hasTimeValue(calendar.dayEnd)) {
+    return "Preencha os horários de entrada e saída.";
+  }
+  if (!calendar.workingDays.length) return "Selecione ao menos um dia trabalhado.";
+  if (dayEnd <= dayStart) return "O horário de saída precisa ser maior que o horário de entrada.";
+  if (productiveMinutesPerDay(calendar) <= 0) {
+    return "A jornada ficou sem tempo produtivo. Ajuste entrada, saída ou almoço.";
+  }
+  return "";
+}
+
+function hasProductiveCalendar(calendar: CalendarConfig) {
+  return calendarValidationMessage(calendar) === "";
+}
+
 function holidaySet(calendar: CalendarConfig) {
   return new Set(
     calendar.holidays
@@ -885,6 +908,7 @@ function nextCalendarDayStart(date: Date, calendar: CalendarConfig) {
 
 function nextWorkingMinute(date: Date, calendar: CalendarConfig): Date {
   let cursor = new Date(date);
+  if (!hasProductiveCalendar(calendar)) return cursor;
   for (let guard = 0; guard < 370; guard += 1) {
     const intervals = workingIntervals(cursor, calendar);
     for (const interval of intervals) {
@@ -898,9 +922,10 @@ function nextWorkingMinute(date: Date, calendar: CalendarConfig): Date {
 
 function addWorkMinutes(date: Date, minutes: number, calendar: CalendarConfig) {
   let remaining = Math.max(0, minutes);
+  if (!hasProductiveCalendar(calendar)) return new Date(date);
   let cursor = nextWorkingMinute(date, calendar);
 
-  while (remaining > 0) {
+  for (let guard = 0; remaining > 0 && guard < 20000; guard += 1) {
     cursor = nextWorkingMinute(cursor, calendar);
     const interval = workingIntervals(cursor, calendar).find(
       (item) => cursor >= item.start && cursor < item.end
@@ -953,6 +978,7 @@ function getStageMinutes(order: Order, stage: Stage, rules: TimeRule[]) {
 function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarConfig) {
   const resourceCursor = new Map<Stage, Date[]>();
   const operations: Operation[] = [];
+  if (!hasProductiveCalendar(calendar)) return operations;
   const start = getStartDate(calendar);
   stages.forEach((stage) => {
     const count = Math.max(1, Math.floor(calendar.operators?.[stage] ?? 1));
@@ -1016,6 +1042,7 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
         id: `${order.id}-${stage}`,
         orderId: order.id,
         item: order.item,
+        os: order.chassis,
         customer: order.customer,
         stage,
         line: order.line,
@@ -1159,6 +1186,7 @@ export default function Home() {
       date.getMonth() === calendar.calendarMonth &&
       (!calendar.workingDays.includes(date.getDay()) || holidayDates.has(dayKey(date)))
   ).length;
+  const calendarWarning = calendarValidationMessage(calendar);
 
   const filteredOrders = useMemo(() => {
     if (filter === "todos") return orders;
@@ -1416,6 +1444,7 @@ export default function Home() {
               <input
                 type="time"
                 value={calendar.dayStart}
+                aria-invalid={calendarWarning ? "true" : "false"}
                 onChange={(event) =>
                   setCalendar({ ...calendar, dayStart: event.target.value })
                 }
@@ -1426,6 +1455,7 @@ export default function Home() {
               <input
                 type="time"
                 value={calendar.dayEnd}
+                aria-invalid={calendarWarning ? "true" : "false"}
                 onChange={(event) =>
                   setCalendar({ ...calendar, dayEnd: event.target.value })
                 }
@@ -1436,6 +1466,7 @@ export default function Home() {
               <input
                 type="time"
                 value={calendar.lunchStart}
+                aria-invalid={calendarWarning ? "true" : "false"}
                 onChange={(event) =>
                   setCalendar({ ...calendar, lunchStart: event.target.value })
                 }
@@ -1446,6 +1477,7 @@ export default function Home() {
               <input
                 type="time"
                 value={calendar.lunchEnd}
+                aria-invalid={calendarWarning ? "true" : "false"}
                 onChange={(event) =>
                   setCalendar({ ...calendar, lunchEnd: event.target.value })
                 }
@@ -1463,6 +1495,7 @@ export default function Home() {
               </select>
             </label>
           </div>
+          {calendarWarning ? <div className="calendar-warning">{calendarWarning}</div> : null}
           <div className="weekday-grid" aria-label="Dias trabalhados">
             {[
               ["D", 0],
@@ -1744,17 +1777,17 @@ export default function Home() {
                             onClick={() => setSelectedStage(stage)}
                             style={{
                               left: `${Math.max(0, left)}px`,
-                              width: `${Math.max(74, width)}px`,
+                              width: `${Math.max(112, width)}px`,
                               backgroundColor: stageColors[stage],
                             }}
-                            title={`${operation.stage} · Pedido ${operation.item} · ${
+                            title={`${operation.stage} · O.S ${operation.os} · Pedido ${operation.item} · ${
                               operation.customer
                             } · ${formatDateTime(operation.start)} até ${formatDateTime(
                               operation.end
                             )} · entrega ${formatDate(operation.dueDate)}`}
                           >
-                            <strong>{operation.item}</strong>
-                            <span>OP{operation.operator} · {formatHour(operation.start)}-{formatHour(operation.end)}</span>
+                            <strong>{operation.os}</strong>
+                            <span>#{operation.item} · OP{operation.operator} · {formatHour(operation.start)}-{formatHour(operation.end)}</span>
                           </button>
                         );
                       })}
@@ -1776,8 +1809,8 @@ export default function Home() {
                 const late = operation.end > parseDate(operation.dueDate);
                 return (
                   <span className={late ? "detail-chip late" : "detail-chip"} key={operation.id}>
-                    <b>{operation.item}</b>
-                    OP{operation.operator} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
+                    <b>O.S {operation.os}</b>
+                    #{operation.item} · OP{operation.operator} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
                   </span>
                 );
               })}
@@ -1863,11 +1896,11 @@ export default function Home() {
                             width: `${Math.max(2.5, width)}%`,
                             backgroundColor: stageColors[stage],
                           }}
-                          title={`${operation.item} · ${operation.customer} · ${formatDateTime(
+                          title={`O.S ${operation.os} · Pedido ${operation.item} · ${operation.customer} · ${formatDateTime(
                             operation.start
                           )} - ${formatDateTime(operation.end)}`}
                         >
-                          {operation.item}
+                          {operation.os}
                         </span>
                       );
                     })}
