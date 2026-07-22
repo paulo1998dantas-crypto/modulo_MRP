@@ -51,6 +51,7 @@ type CalendarConfig = {
   dayEnd: string;
   lunchStart: string;
   lunchEnd: string;
+  horizonDays: number;
   workingDays: number[];
   holidays: string;
   calendarYear: number;
@@ -154,6 +155,7 @@ const initialCalendar: CalendarConfig = {
   dayEnd: "17:18",
   lunchStart: "12:00",
   lunchEnd: "13:00",
+  horizonDays: 10,
   workingDays: [1, 2, 3, 4, 5],
   holidays: "2026-07-25",
   calendarYear: 2026,
@@ -161,6 +163,23 @@ const initialCalendar: CalendarConfig = {
   operators: initialOperators,
   completeFlow: false,
 };
+
+function planningHorizonDays(calendar: CalendarConfig) {
+  return Math.max(1, Math.min(365, Math.floor(Number(calendar.horizonDays) || 10)));
+}
+
+function restoreCalendarConfig(calendar: Partial<CalendarConfig>) {
+  const merged: CalendarConfig = {
+    ...initialCalendar,
+    ...calendar,
+    workingDays: calendar.workingDays?.length ? calendar.workingDays : initialCalendar.workingDays,
+    operators: {
+      ...initialOperators,
+      ...(calendar.operators ?? {}),
+    },
+  };
+  return { ...merged, horizonDays: planningHorizonDays(merged) };
+}
 
 const defaultMinutes: Record<Stage, number> = {
   VIDROS: 120,
@@ -1175,7 +1194,7 @@ export default function Home() {
         version?: string;
         orders?: Order[];
         rules?: TimeRule[];
-        calendar?: CalendarConfig;
+        calendar?: Partial<CalendarConfig>;
       };
       if (parsed.version !== STATE_VERSION) {
         window.localStorage.removeItem("ji-mrp-state");
@@ -1183,7 +1202,7 @@ export default function Home() {
       }
       if (parsed.orders) setOrders(parsed.orders);
       if (parsed.rules) setRules(parsed.rules);
-      if (parsed.calendar) setCalendar(parsed.calendar);
+      if (parsed.calendar) setCalendar(restoreCalendarConfig(parsed.calendar));
     } catch {
       window.localStorage.removeItem("ji-mrp-state");
     }
@@ -1209,6 +1228,7 @@ export default function Home() {
       (!calendar.workingDays.includes(date.getDay()) || holidayDates.has(dayKey(date)))
   ).length;
   const calendarWarning = calendarValidationMessage(calendar);
+  const horizonDays = planningHorizonDays(calendar);
 
   const filteredOrders = useMemo(() => {
     if (filter === "todos") return orders;
@@ -1231,7 +1251,7 @@ export default function Home() {
 
   const capacity = useMemo(() => {
     const capacityStart = getStartDate(calendar);
-    const capacityEnd = addDays(startOfDay(capacityStart), 9);
+    const capacityEnd = addDays(startOfDay(capacityStart), planningHorizonDays(calendar) - 1);
     const byStage = stages.map((stage) => {
       const minutes = operations
         .filter((operation) => operation.stage === stage)
@@ -1272,16 +1292,18 @@ export default function Home() {
   }, [calendar, operations]);
 
   const ganttDays = useMemo(() => {
-    const start = startOfDay(ganttBounds.start);
-    const end = addDays(startOfDay(ganttBounds.end), 1);
+    const start = startOfDay(getStartDate(calendar));
+    const horizonEnd = addDays(start, planningHorizonDays(calendar) - 1);
+    const scheduleEnd = startOfDay(ganttBounds.end);
+    const end = addDays(scheduleEnd > horizonEnd ? scheduleEnd : horizonEnd, 1);
     const days: Date[] = [];
     let cursor = start;
-    while (cursor <= end && days.length < 90) {
+    while (cursor <= end && days.length < 370) {
       days.push(cursor);
       cursor = addDays(cursor, 1);
     }
     return days;
-  }, [ganttBounds.end, ganttBounds.start]);
+  }, [calendar, ganttBounds.end]);
 
   const ganttScale = useMemo(() => {
     const start = ganttDays[0] ?? startOfDay(ganttBounds.start);
@@ -1516,6 +1538,25 @@ export default function Home() {
                 aria-invalid={calendarWarning ? "true" : "false"}
                 onChange={(event) =>
                   setCalendar({ ...calendar, lunchEnd: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              Horizonte (dias)
+              <input
+                min="1"
+                max="365"
+                step="1"
+                type="number"
+                value={horizonDays}
+                onChange={(event) =>
+                  setCalendar({
+                    ...calendar,
+                    horizonDays: Math.max(
+                      1,
+                      Math.min(365, Math.floor(Number(event.target.value) || 10))
+                    ),
+                  })
                 }
               />
             </label>
@@ -1895,7 +1936,7 @@ export default function Home() {
         <div className="panel capacity-panel">
           <div className="section-head">
             <h2>Capacidade</h2>
-            <span>10 dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
+            <span>{horizonDays} dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
           </div>
           <div className="capacity-list">
             {capacity.map((row) => (
@@ -1988,7 +2029,7 @@ export default function Home() {
         <div className="panel">
           <div className="section-head">
             <h2>Capacidade</h2>
-            <span>10 dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
+            <span>{horizonDays} dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
           </div>
           <div className="capacity-list">
             {capacity.map((row) => (
