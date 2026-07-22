@@ -759,11 +759,25 @@ function normalize(value: string) {
     .trim();
 }
 
-function shouldSchedule(value: string, completeFlow: boolean) {
+function isNoLoadStageStatus(value: string) {
   const status = normalize(value || "");
-  if (status === "N A" || status === "NA" || status === "") return false;
+  return status === "N A" || status === "NA" || status === "";
+}
+
+function isCompletedStageStatus(value: string) {
+  const status = normalize(value || "");
+  return status === "S" || status === "SIM";
+}
+
+function isPartialStageStatus(value: string) {
+  const status = normalize(value || "");
+  return status === "P" || status === "PARCIAL";
+}
+
+function shouldSchedule(value: string, completeFlow: boolean) {
+  if (isNoLoadStageStatus(value)) return false;
   if (completeFlow) return true;
-  return status !== "S" && status !== "SIM";
+  return !isCompletedStageStatus(value);
 }
 
 function stageDependencyLabel(stage: Stage) {
@@ -929,7 +943,11 @@ function getStageMinutes(order: Order, stage: Stage, rules: TimeRule[]) {
   const acBoost = stage === "A/C" && normalize(order.acType).includes("CONDENSADORA") ? 45 : 0;
   const accessoryBoost = stage === "ACESSÓ." && normalize(order.accessory).includes("SJ") ? 30 : 0;
   const plotBoost = stage === "PLOTA." && normalize(order.plot).includes("SIM") ? 45 : 0;
-  return Math.max(0, Math.round(base + acBoost + accessoryBoost + plotBoost));
+  const fullMinutes = Math.max(0, Math.round(base + acBoost + accessoryBoost + plotBoost));
+  if (fullMinutes > 0 && isPartialStageStatus(order.stages[stage])) {
+    return Math.max(1, Math.round(fullMinutes / 2));
+  }
+  return fullMinutes;
 }
 
 function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarConfig) {
