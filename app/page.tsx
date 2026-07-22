@@ -761,6 +761,35 @@ function weekLabel(date: Date) {
   return `S${Math.ceil((days + first.getDay() + 1) / 7)}`;
 }
 
+function startOfDay(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function addDays(date: Date, days: number) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function formatDayHeader(date: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  })
+    .format(date)
+    .replace(".", "");
+}
+
+function formatHour(date: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function Home() {
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [rules, setRules] = useState<TimeRule[]>(initialRules);
@@ -842,6 +871,40 @@ export default function Home() {
       span: Math.max(1, end.getTime() - start.getTime()),
     };
   }, [calendar, operations]);
+
+  const ganttDays = useMemo(() => {
+    const start = startOfDay(ganttBounds.start);
+    const end = addDays(startOfDay(ganttBounds.end), 1);
+    const days: Date[] = [];
+    let cursor = start;
+    while (cursor <= end && days.length < 90) {
+      days.push(cursor);
+      cursor = addDays(cursor, 1);
+    }
+    return days;
+  }, [ganttBounds.end, ganttBounds.start]);
+
+  const ganttScale = useMemo(() => {
+    const start = ganttDays[0] ?? startOfDay(ganttBounds.start);
+    const end =
+      ganttDays.length > 0
+        ? addDays(ganttDays[ganttDays.length - 1], 1)
+        : addDays(start, 1);
+    return {
+      start,
+      end,
+      span: Math.max(1, end.getTime() - start.getTime()),
+      width: Math.max(960, ganttDays.length * 150),
+    };
+  }, [ganttBounds.start, ganttDays]);
+
+  const selectedOperations = useMemo(
+    () =>
+      operations
+        .filter((operation) => operation.stage === selectedStage)
+        .sort((a, b) => a.start.getTime() - b.start.getTime()),
+    [operations, selectedStage]
+  );
 
   const lateOrders = filteredOrders.filter((order) => {
     const finish = finishByOrder.get(order.id);
@@ -1077,7 +1140,156 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.45fr_1fr]">
+      <section className="mx-auto grid max-w-[1600px] gap-4 px-5 pb-5">
+        <div className="panel wide cm25-panel">
+          <div className="section-head cm25-head">
+            <div>
+              <h2>Gantt de capacidade</h2>
+              <span>
+                {formatDateTime(ganttBounds.start)} até {formatDateTime(ganttBounds.end)}
+              </span>
+            </div>
+            <div className="cm25-legend" aria-label="Legenda do Gantt">
+              <b>CM25</b>
+              <span>Barra = pedido + processo</span>
+              <span className="legend-late">Atraso</span>
+            </div>
+          </div>
+
+          <div className="cm25-scroll" role="region" aria-label="Gantt com datas e processos">
+            <div
+              className="cm25-grid"
+              style={{ gridTemplateColumns: `230px ${ganttScale.width}px` }}
+            >
+              <div className="cm25-corner">
+                <strong>Processo</strong>
+                <span>Carga / operações</span>
+              </div>
+              <div
+                className="cm25-timeline-head"
+                style={{
+                  width: `${ganttScale.width}px`,
+                  gridTemplateColumns: `repeat(${ganttDays.length}, 150px)`,
+                }}
+              >
+                {ganttDays.map((day) => (
+                  <div
+                    className={isWorkingDay(day, calendar) ? "cm25-day" : "cm25-day off"}
+                    key={dayKey(day)}
+                  >
+                    <strong>{formatDayHeader(day)}</strong>
+                    <span>{weekLabel(day)}</span>
+                  </div>
+                ))}
+              </div>
+
+              {stages.map((stage) => {
+                const laneOps = operations.filter((operation) => operation.stage === stage);
+                const stageHours = laneOps.reduce(
+                  (total, operation) => total + operation.minutes / 60,
+                  0
+                );
+                return (
+                  <div className="cm25-row-shell" key={stage}>
+                    <button
+                      type="button"
+                      className={stage === selectedStage ? "cm25-process selected" : "cm25-process"}
+                      onClick={() => setSelectedStage(stage)}
+                    >
+                      <strong>{stage}</strong>
+                      <span>{stageHours.toFixed(1)}h · {laneOps.length} ops</span>
+                    </button>
+                    <div
+                      className="cm25-track"
+                      style={{
+                        width: `${ganttScale.width}px`,
+                        backgroundSize: "150px 100%, 100% 100%",
+                      }}
+                    >
+                      {laneOps.map((operation) => {
+                        const left =
+                          ((operation.start.getTime() - ganttScale.start.getTime()) /
+                            ganttScale.span) *
+                          ganttScale.width;
+                        const width =
+                          ((operation.end.getTime() - operation.start.getTime()) /
+                            ganttScale.span) *
+                          ganttScale.width;
+                        const late = operation.end > parseDate(operation.dueDate);
+                        return (
+                          <button
+                            className={late ? "cm25-op late" : "cm25-op"}
+                            key={operation.id}
+                            type="button"
+                            onClick={() => setSelectedStage(stage)}
+                            style={{
+                              left: `${Math.max(0, left)}px`,
+                              width: `${Math.max(74, width)}px`,
+                              backgroundColor: stageColors[stage],
+                            }}
+                            title={`${operation.stage} · Pedido ${operation.item} · ${
+                              operation.customer
+                            } · ${formatDateTime(operation.start)} até ${formatDateTime(
+                              operation.end
+                            )} · entrega ${formatDate(operation.dueDate)}`}
+                          >
+                            <strong>{operation.item}</strong>
+                            <span>{formatHour(operation.start)}-{formatHour(operation.end)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="cm25-detail">
+            <div>
+              <strong>{selectedStage}</strong>
+              <span>Operações planejadas em ordem de início</span>
+            </div>
+            <div className="cm25-detail-list">
+              {selectedOperations.slice(0, 8).map((operation) => {
+                const late = operation.end > parseDate(operation.dueDate);
+                return (
+                  <span className={late ? "detail-chip late" : "detail-chip"} key={operation.id}>
+                    <b>{operation.item}</b>
+                    {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel capacity-panel">
+          <div className="section-head">
+            <h2>Capacidade</h2>
+            <span>{weekLabel(getStartDate(calendar))} em diante</span>
+          </div>
+          <div className="capacity-list">
+            {capacity.map((row) => (
+              <button
+                key={row.stage}
+                className={row.stage === selectedStage ? "capacity-row selected" : "capacity-row"}
+                type="button"
+                onClick={() => setSelectedStage(row.stage)}
+              >
+                <span>{row.stage}</span>
+                <b>{row.hours.toFixed(1)}h</b>
+                <i>
+                  <span style={{ width: `${Math.min(100, row.load * 100)}%` }} />
+                </i>
+                <em>{Math.round(row.load * 100)}%</em>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="legacy-gantt-section mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.45fr_1fr]">
         <div className="panel wide">
           <div className="section-head">
             <h2>Gantt por etapa</h2>
