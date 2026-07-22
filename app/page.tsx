@@ -82,6 +82,50 @@ const stages: Stage[] = [
   "LIBERA.",
 ];
 
+const schedulingStages: Stage[] = [
+  "PREP",
+  "SERRA.",
+  "EXPE.",
+  "VIDROS",
+  "A/C",
+  "DESMONT",
+  "REVEST",
+  "ELÉTRICA",
+  "BCO",
+  "ACESSÓ.",
+  "PLOTA.",
+  "LIBERA.",
+];
+
+const stageDependencies: Record<Stage, Stage[]> = {
+  VIDROS: [],
+  "A/C": [],
+  PREP: [],
+  "SERRA.": [],
+  "EXPE.": [],
+  DESMONT: ["VIDROS", "A/C"],
+  REVEST: ["DESMONT"],
+  ELÉTRICA: ["REVEST"],
+  BCO: ["REVEST"],
+  "ACESSÓ.": ["REVEST"],
+  "PLOTA.": ["VIDROS"],
+  "LIBERA.": [
+    "VIDROS",
+    "A/C",
+    "PREP",
+    "SERRA.",
+    "EXPE.",
+    "DESMONT",
+    "REVEST",
+    "ELÉTRICA",
+    "BCO",
+    "ACESSÓ.",
+    "PLOTA.",
+  ],
+};
+
+const STATE_VERSION = "process-dependencies-2026-07-22";
+
 const initialCalendar: CalendarConfig = {
   startDate: "2026-07-22",
   dayStart: "07:30",
@@ -564,6 +608,99 @@ const initialOrders: Order[] = [
   },
 ];
 
+type UploadSequenceRow = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string
+];
+
+const uploadedSequenceRows: UploadSequenceRow[] = [
+  ["SA001849", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "MADEIREIRA SANTA RITA", "ITU", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
+  ["VE279701", "Mercedes-Benz Sprinter 417 10,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,2-1 - 2P - TECIDO - TRILHO - ELEVITTA", "BELISA", "JARDIM DO SERIDÓ (CIOP - ITEM 04)", "2026-07-20", "S", "S", "S", "S", "S", "S", "S", "S", "?", "N", "N/A", "N"],
+  ["TA004006", "Citroën Jumpy Furgão", "LB", "GE", "CJ. BANCOS REC - LB - 3,2,3 - REC - 3P - TECIDO - EXPERT", "GAMMAPAR NEGOCIOS", "PORTO RICO", "2026-07-20", "S", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N", "N"],
+  ["TU021788", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "N", "N/A", "N/A", "N"],
+  ["TU021789", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "?", "N/A", "N/A", "N"],
+  ["TU020681", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "N", "N/A", "N/A", "N"],
+  ["TA004277", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,2 - 3P - COURVIN PRETO/DIAMANTE/LINHA PRETA - E/S/ J - EXECUTIVO", "STELUTI", "SÃO PAULO", "2026-07-20", "N/A", "S", "S", "N/A", "N", "S", "N", "S", "N", "N", "N/A", "N"],
+  ["TA007830", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "MARILDA AVIAMENTOS", "IBITINGA", "2026-07-21", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
+  ["VE277832", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 8)", "2026-07-22", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["VE278661", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "PONTO DOS VOLANTES (CISARP ITEM 23)", "2026-07-23", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
+  ["VE281116", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,3 - 2P - TECIDO - TRILHO", "BELISA", "BELA CRUZ (ADESAO CISARP ITEM 22)", "2026-07-24", "N", "?", "S", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["VE280965", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3,4 - 3P - TECIDO - NORMAL", "LIZARD", "CONGONHAS", "2026-07-24", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["VE281194", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "MONTE SANTO DE MINAS (ADESÃO CISARP ITEM 23)", "2026-07-24", "N", "?", "S", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA008272", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "RTR", "SÃO PAULO", "2026-07-24", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA008271", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "RTR", "SÃO PAULO", "2026-07-24", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["VE278805", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (CISARP ITEM 23)", "2026-07-24", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
+  ["TE277239", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4;2;3;3;3 - 2P - TECIDO - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 7)", "2026-07-25", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA005694", "Citroën Jumper Furgão", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,3,2,2-1 - 2P - TECIDO - PME 2A - BJD - FOCA", "FRP", "SÃO JOÃO DO OESTE", "2026-07-26", "S", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["VE277821", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS FIXOS - LB - 1 E, 1 E, 1 E, 1 D - FIXO - 2P - TEIDO - NORMAL", "BELISA", "NOVA PONTE (CRAVINHOS - ITEM 08)", "2026-07-31", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
+  ["VJ666369", "Renault Master L3H2", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3 - 3P - TECIDO - NORMAL", "ASSOC. PROP. RES. PORTO SÃO PEDRO", "PORTO FELIZ", "2026-07-31", "S", "N", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
+  ["TA009754", "Citroën Jumpy Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/DIAMANTE/LINHA BRANCA - E/S/ J - EXECUTIVO", "PJ MOBILIDADE", "SÃO PAULO", "2026-08-02", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA004272", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "VM CALÇADOS", "GUARULHOS", "2026-08-03", "N/A", "S", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["VJ665708", "Renault Master L3H2", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,2-1 - 2P - TECIDO - NORMAL - FOCA", "BR PRIME", " BURITIS (ADESAO BALSAS)", "2026-08-05", "S", "S", "S", "N/A", "N", "S", "N", "S", "N", "N", "N/A", "N"],
+  ["TE270315", "Mercedes-Benz Sprinter 417 10,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,2-1 - 2P - TECIDO - TRILHO - ELEVITTA", "BELISA", "SIDROLÂNDIA (ADESAO CIDASG)", "2026-08-05", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA009491", "Fiat Scudo Vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 3,3 - 3P - TECIDO - E/S/ J", "FMIS", "DOURADO", "2026-08-07", "N/A", "N", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA008270", "Fiat Scudo Vitrê", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/RETILINEA/LINHA PRETA - E/S/ J - EXECUTIVO", "HI SERVICE", "SÃO PAULO", "2026-08-07", "N/A", "S", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA009749", "Citroën Jumpy Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/RETILINEA/LINHA PRETA - E/S/ J - EXECUTIVO", "HI SERVICE", "SÃO PAULO", "2026-08-07", "S", "S", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA007442", "Peugeot Expert Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN MARROM/BOOMERANG/LINHA DOURADA - E/S/ J - EXECUTIVO", "FRIENDSHIP", "RIO DE JANEIRO", "2026-08-08", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA000944", "Peugeot Expert Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,2-1 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "RECANTO SÃO BENEDITO", "SÃO BENTO DO SAPUCAI", "2026-08-09", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA008976", "Peugeot Expert Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN MARROM/BOOMERANG/LINHA DOURADA - E/S/ J - EXECUTIVO", "COMODITA 3 TRANSPORTE", "SÃO PAULO", "2026-08-14", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+];
+
+function sequenceStages(row: UploadSequenceRow): Record<Stage, string> {
+  return {
+    VIDROS: row[8],
+    "A/C": row[9],
+    PREP: row[10],
+    "SERRA.": row[11],
+    "EXPE.": row[12],
+    DESMONT: row[13],
+    ELÉTRICA: row[14],
+    REVEST: row[15],
+    BCO: row[16],
+    "ACESSÓ.": row[17],
+    "PLOTA.": row[18],
+    "LIBERA.": row[19],
+  };
+}
+
+const uploadedSequenceOrders: Order[] = uploadedSequenceRows.map((row, index) => ({
+  id: 30001 + index,
+  status: "PÁTIO",
+  item: String(index + 1).padStart(2, "0"),
+  dueDate: row[7],
+  customer: row[5],
+  city: row[6],
+  model: row[1],
+  chassis: row[0],
+  line: row[2],
+  transformation: row[1],
+  bank: row[4],
+  ac: row[3],
+  acType: row[3],
+  accessory: row[17] === "N/A" ? "NÃO" : "SJ",
+  plot: row[18],
+  sequence: index + 1,
+  stages: sequenceStages(row),
+}));
+
 const stageColors: Record<Stage, string> = {
   VIDROS: "#0f766e",
   "A/C": "#2563eb",
@@ -599,8 +736,16 @@ function normalize(value: string) {
 function shouldSchedule(value: string, completeFlow: boolean) {
   const status = normalize(value || "");
   if (status === "N A" || status === "NA" || status === "") return false;
-  if (completeFlow) return status !== "N";
+  if (completeFlow) return true;
   return status !== "S" && status !== "SIM";
+}
+
+function stageDependencyLabel(stage: Stage) {
+  const dependencies = stageDependencies[stage];
+  if (!dependencies.length) return "Paralela/inicial";
+  if (stage === "DESMONT") return "Depende de VIDROS + A/C";
+  if (stage === "LIBERA.") return "Depende de todas as etapas aplicáveis";
+  return `Depende de ${dependencies.join(" + ")}`;
 }
 
 function dayKey(date: Date) {
@@ -701,20 +846,40 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
 
   const sorted = [...orders].sort((a, b) => {
     const due = parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime();
-    return due || a.sequence - b.sequence || Number(a.item) - Number(b.item);
+    return a.sequence - b.sequence || due || Number(a.item) - Number(b.item);
   });
 
   for (const order of sorted) {
-    let ready = new Date(start);
-    for (const stage of stages) {
-      if (!shouldSchedule(order.stages[stage], calendar.completeFlow)) continue;
+    const stageFinish = new Map<Stage, Date>();
+    stages.forEach((stage) => {
+      if (!shouldSchedule(order.stages[stage], calendar.completeFlow)) {
+        stageFinish.set(stage, new Date(start));
+      }
+    });
+
+    for (const stage of schedulingStages) {
+      const dependenciesReadyAt = (stageDependencies[stage] ?? []).reduce(
+        (latest, dependency) => {
+          const dependencyFinish = stageFinish.get(dependency) ?? start;
+          return dependencyFinish > latest ? dependencyFinish : latest;
+        },
+        new Date(start)
+      );
+
+      if (!shouldSchedule(order.stages[stage], calendar.completeFlow)) {
+        if (!stageFinish.has(stage)) stageFinish.set(stage, dependenciesReadyAt);
+        continue;
+      }
 
       const minutes = getStageMinutes(order, stage, rules);
-      if (minutes <= 0) continue;
+      if (minutes <= 0) {
+        stageFinish.set(stage, dependenciesReadyAt);
+        continue;
+      }
 
       const stageReady = resourceCursor.get(stage) ?? new Date(start);
       const operationStart = nextWorkingMinute(
-        new Date(Math.max(ready.getTime(), stageReady.getTime())),
+        new Date(Math.max(dependenciesReadyAt.getTime(), stageReady.getTime())),
         calendar
       );
       const end = addWorkMinutes(operationStart, minutes, calendar);
@@ -731,7 +896,7 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
         dueDate: order.dueDate,
       });
       resourceCursor.set(stage, end);
-      ready = end;
+      stageFinish.set(stage, end);
     }
   }
 
@@ -791,7 +956,7 @@ function formatHour(date: Date) {
 }
 
 export default function Home() {
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [orders, setOrders] = useState<Order[]>(uploadedSequenceOrders);
   const [rules, setRules] = useState<TimeRule[]>(initialRules);
   const [calendar, setCalendar] = useState<CalendarConfig>(initialCalendar);
   const [selectedStage, setSelectedStage] = useState<Stage>("REVEST");
@@ -802,10 +967,15 @@ export default function Home() {
     if (!saved) return;
     try {
       const parsed = JSON.parse(saved) as {
+        version?: string;
         orders?: Order[];
         rules?: TimeRule[];
         calendar?: CalendarConfig;
       };
+      if (parsed.version !== STATE_VERSION) {
+        window.localStorage.removeItem("ji-mrp-state");
+        return;
+      }
       if (parsed.orders) setOrders(parsed.orders);
       if (parsed.rules) setRules(parsed.rules);
       if (parsed.calendar) setCalendar(parsed.calendar);
@@ -817,7 +987,7 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem(
       "ji-mrp-state",
-      JSON.stringify({ orders, rules, calendar })
+      JSON.stringify({ version: STATE_VERSION, orders, rules, calendar })
     );
   }, [orders, rules, calendar]);
 
@@ -978,7 +1148,7 @@ export default function Home() {
   }
 
   function resetData() {
-    setOrders(initialOrders);
+    setOrders(uploadedSequenceOrders);
     setRules(initialRules);
     setCalendar(initialCalendar);
   }
@@ -1112,7 +1282,7 @@ export default function Home() {
                 setCalendar({ ...calendar, completeFlow: event.target.checked })
               }
             />
-            Simular fluxo completo em vez de somente pendências
+            Simular fluxo completo em vez de somente pendências apontadas
           </label>
         </div>
 
@@ -1248,6 +1418,7 @@ export default function Home() {
           <div className="cm25-detail">
             <div>
               <strong>{selectedStage}</strong>
+              <span>{stageDependencyLabel(selectedStage)}</span>
               <span>Operações planejadas em ordem de início</span>
             </div>
             <div className="cm25-detail-list">
@@ -1373,7 +1544,7 @@ export default function Home() {
         <div className="panel wide">
           <div className="section-head">
             <h2>Pedidos sequenciados</h2>
-            <span>Dados iniciais lidos da Agenda_R02</span>
+            <span>Sequência importada do modelo_upload (18).xlsx</span>
           </div>
           <div className="table-wrap">
             <table>
