@@ -1113,6 +1113,14 @@ function formatHour(date: Date) {
   }).format(date);
 }
 
+function formatDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (!hours) return `${mins}min`;
+  if (!mins) return `${hours}h`;
+  return `${hours}h${String(mins).padStart(2, "0")}`;
+}
+
 function monthName(monthIndex: number) {
   return new Intl.DateTimeFormat("pt-BR", { month: "long" }).format(
     new Date(2026, monthIndex, 1)
@@ -1208,15 +1216,13 @@ export default function Home() {
   }, [operations]);
 
   const capacity = useMemo(() => {
+    const capacityStart = getStartDate(calendar);
+    const capacityEnd = addDays(startOfDay(capacityStart), 9);
     const byStage = stages.map((stage) => {
       const minutes = operations
         .filter((operation) => operation.stage === stage)
         .reduce((total, operation) => total + operation.minutes, 0);
-      const workingDays = countWorkingDays(
-        getStartDate(calendar),
-        addWorkMinutes(getStartDate(calendar), 10 * 24 * 60, calendar),
-        calendar
-      );
+      const workingDays = countWorkingDays(capacityStart, capacityEnd, calendar);
       const operators = Math.max(1, Math.floor(calendar.operators?.[stage] ?? 1));
       const perOperatorAvailable = workingDays * productiveMinutesPerDay(calendar);
       const available = perOperatorAvailable * operators;
@@ -1784,10 +1790,10 @@ export default function Home() {
                               operation.customer
                             } · ${formatDateTime(operation.start)} até ${formatDateTime(
                               operation.end
-                            )} · entrega ${formatDate(operation.dueDate)}`}
+                            )} · tempo produtivo ${formatDuration(operation.minutes)} · entrega ${formatDate(operation.dueDate)}`}
                           >
                             <strong>{operation.os}</strong>
-                            <span>#{operation.item} · OP{operation.operator} · {formatHour(operation.start)}-{formatHour(operation.end)}</span>
+                            <span>#{operation.item} · OP{operation.operator} · prod. {formatDuration(operation.minutes)}</span>
                           </button>
                         );
                       })}
@@ -1810,7 +1816,7 @@ export default function Home() {
                 return (
                   <span className={late ? "detail-chip late" : "detail-chip"} key={operation.id}>
                     <b>O.S {operation.os}</b>
-                    #{operation.item} · OP{operation.operator} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
+                    #{operation.item} · OP{operation.operator} · prod. {formatDuration(operation.minutes)} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
                   </span>
                 );
               })}
@@ -1821,7 +1827,7 @@ export default function Home() {
         <div className="panel capacity-panel">
           <div className="section-head">
             <h2>Capacidade</h2>
-            <span>{weekLabel(getStartDate(calendar))} em diante</span>
+            <span>10 dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
           </div>
           <div className="capacity-list">
             {capacity.map((row) => (
@@ -1898,7 +1904,7 @@ export default function Home() {
                           }}
                           title={`O.S ${operation.os} · Pedido ${operation.item} · ${operation.customer} · ${formatDateTime(
                             operation.start
-                          )} - ${formatDateTime(operation.end)}`}
+                          )} - ${formatDateTime(operation.end)} · tempo produtivo ${formatDuration(operation.minutes)}`}
                         >
                           {operation.os}
                         </span>
@@ -1914,7 +1920,7 @@ export default function Home() {
         <div className="panel">
           <div className="section-head">
             <h2>Capacidade</h2>
-            <span>{weekLabel(getStartDate(calendar))} em diante</span>
+            <span>10 dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
           </div>
           <div className="capacity-list">
             {capacity.map((row) => (

@@ -592,7 +592,8 @@ textarea {
 .cm25-off-column {
   position: absolute;
   inset-block: 0;
-  z-index: 1;
+  z-index: 4;
+  pointer-events: none;
   background: repeating-linear-gradient(
       -45deg,
       rgba(108, 117, 109, 0.16) 0,
@@ -607,7 +608,8 @@ textarea {
 .cm25-lunch-column {
   position: absolute;
   inset-block: 0;
-  z-index: 1;
+  z-index: 4;
+  pointer-events: none;
   background: rgba(245, 181, 53, 0.28);
   border-inline: 1px solid rgba(180, 118, 15, 0.28);
 }
