@@ -1,0 +1,410 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f6f7f4;
+  --foreground: #1d241f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.tool-button {
+  min-height: 38px;
+  border: 1px solid #244b3a;
+  background: #244b3a;
+  color: #fbfcf8;
+  padding: 0 14px;
+  font-weight: 700;
+}
+
+.tool-button.secondary {
+  border-color: #b7c1b5;
+  background: #ffffff;
+  color: #26352d;
+}
+
+.panel {
+  border: 1px solid #d9ddcf;
+  background: #ffffff;
+  padding: 16px;
+  box-shadow: 0 10px 24px rgba(32, 41, 34, 0.06);
+}
+
+.panel.wide {
+  overflow: hidden;
+}
+
+.panel h2,
+.section-head h2 {
+  margin: 0;
+  color: #1a241d;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.section-head span {
+  color: #667165;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+label,
+.stacked {
+  display: grid;
+  gap: 6px;
+  color: #526055;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #cbd3c5;
+  background: #fbfcf8;
+  color: #1d241f;
+  min-height: 36px;
+  padding: 7px 9px;
+  outline-color: #2f6f55;
+  text-transform: none;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.weekday-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin: 13px 0;
+}
+
+.weekday {
+  border: 1px solid #cbd3c5;
+  background: #f8faf4;
+  color: #566158;
+  min-height: 34px;
+  font-weight: 800;
+}
+
+.weekday.active {
+  border-color: #2f6f55;
+  background: #dcece3;
+  color: #163d2d;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  text-transform: none;
+}
+
+.switch-row input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  min-height: 128px;
+  border: 1px solid #d9ddcf;
+  background: #ffffff;
+  padding: 14px;
+  display: grid;
+  align-content: space-between;
+  border-left: 6px solid #2f6f55;
+}
+
+.metric span,
+.metric small {
+  color: #657164;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.metric strong {
+  color: #1a241d;
+  font-size: 29px;
+  line-height: 1.1;
+}
+
+.accent-green {
+  border-left-color: #2f6f55;
+}
+
+.accent-red {
+  border-left-color: #be123c;
+}
+
+.accent-blue {
+  border-left-color: #2563eb;
+}
+
+.accent-orange {
+  border-left-color: #d97706;
+}
+
+.gantt {
+  display: grid;
+  gap: 8px;
+  min-width: 760px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gantt-lane {
+  display: grid;
+  grid-template-columns: 92px minmax(560px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.lane-label {
+  border: 1px solid #d5dacd;
+  background: #fbfcf8;
+  color: #29342c;
+  min-height: 30px;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+  padding: 0 8px;
+}
+
+.lane-label.selected {
+  border-color: #244b3a;
+  background: #244b3a;
+  color: #ffffff;
+}
+
+.lane-track {
+  position: relative;
+  min-height: 31px;
+  border: 1px solid #edf0e8;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(100, 112, 103, 0.12) 0,
+      rgba(100, 112, 103, 0.12) 1px,
+      transparent 1px,
+      transparent 56px
+    ),
+    #fbfcf8;
+}
+
+.bar {
+  position: absolute;
+  top: 5px;
+  height: 19px;
+  min-width: 34px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 19px;
+  overflow: hidden;
+  padding: 0 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar.late {
+  outline: 2px solid #be123c;
+  outline-offset: 1px;
+}
+
+.capacity-list,
+.rule-list {
+  display: grid;
+  gap: 8px;
+}
+
+.capacity-row {
+  display: grid;
+  grid-template-columns: 76px 54px 1fr 42px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d9ddcf;
+  background: #fbfcf8;
+  color: #26352d;
+  min-height: 40px;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.capacity-row.selected {
+  border-color: #244b3a;
+  background: #eef5eb;
+}
+
+.capacity-row span,
+.capacity-row b,
+.capacity-row em {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.capacity-row i {
+  display: block;
+  height: 8px;
+  background: #e8ece3;
+}
+
+.capacity-row i span {
+  display: block;
+  height: 8px;
+  background: #2f6f55;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  min-width: 780px;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid #edf0e8;
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  color: #5e6a60;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+td {
+  color: #273129;
+  font-size: 13px;
+}
+
+td strong {
+  display: block;
+}
+
+td small {
+  display: block;
+  margin-top: 3px;
+  color: #6b746d;
+}
+
+td select,
+td input {
+  min-width: 110px;
+}
+
+.status {
+  display: inline-flex;
+  border: 1px solid #cbd3c5;
+  background: #f8faf4;
+  color: #29342c;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.status.late {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+.late-text {
+  color: #be123c;
+  font-weight: 800;
+}
+
+.rule-row {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d9ddcf;
+  background: #fbfcf8;
+  padding: 10px;
+}
+
+.rule-title {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  gap: 8px;
+  align-items: end;
+}
+
+.rule-title label {
+  grid-template-columns: 1fr 90px;
+  align-items: center;
+}
+
+@media (max-width: 1024px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .form-grid,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    padding: 13px;
+  }
+
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
