@@ -688,7 +688,7 @@ textarea {
 }
 
 .capacity-panel .capacity-list {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .capacity-list,
@@ -699,13 +699,13 @@ textarea {
 
 .capacity-row {
   display: grid;
-  grid-template-columns: 76px 54px 1fr 42px;
+  grid-template-columns: minmax(112px, 1.2fr) 72px minmax(120px, 1fr) 44px minmax(92px, 0.7fr);
   align-items: center;
   gap: 8px;
   border: 1px solid #d9ddcf;
   background: #fbfcf8;
   color: #26352d;
-  min-height: 40px;
+  min-height: 52px;
   padding: 7px 8px;
   text-align: left;
 }
@@ -715,12 +715,42 @@ textarea {
   background: #eef5eb;
 }
 
+.capacity-row button {
+  display: grid;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
 .capacity-row span,
-.capacity-row b,
-.capacity-row em {
+.capacity-row small,
+.capacity-row em,
+.capacity-row strong {
   font-size: 12px;
   font-style: normal;
   font-weight: 800;
+}
+
+.capacity-row small {
+  color: #657164;
+  font-size: 11px;
+}
+
+.capacity-row label {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  color: #657164;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.capacity-row input {
+  min-height: 30px;
+  padding: 4px 6px;
 }
 
 .capacity-row i {
@@ -733,6 +763,10 @@ textarea {
   display: block;
   height: 8px;
   background: #2f6f55;
+}
+
+.capacity-row .labor-alert {
+  color: #be123c;
 }
 
 .table-wrap {
@@ -823,10 +857,6 @@ td input {
 
 @media (max-width: 1024px) {
   .metric-grid,
-  .capacity-panel .capacity-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .cm25-detail {
     grid-template-columns: 1fr;
   }

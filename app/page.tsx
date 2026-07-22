@@ -55,6 +55,7 @@ type CalendarConfig = {
   holidays: string;
   calendarYear: number;
   calendarMonth: number;
+  operators: Record<Stage, number>;
   completeFlow: boolean;
 };
 
@@ -65,6 +66,7 @@ type Operation = {
   customer: string;
   stage: Stage;
   line: string;
+  operator: number;
   start: Date;
   end: Date;
   minutes: number;
@@ -128,7 +130,22 @@ const stageDependencies: Record<Stage, Stage[]> = {
   ],
 };
 
-const STATE_VERSION = "calendar-capacity-2026-07-22";
+const STATE_VERSION = "operators-capacity-2026-07-22";
+
+const initialOperators: Record<Stage, number> = {
+  VIDROS: 1,
+  "A/C": 1,
+  PREP: 1,
+  "SERRA.": 1,
+  "EXPE.": 1,
+  DESMONT: 1,
+  ELÉTRICA: 1,
+  REVEST: 1,
+  BCO: 1,
+  "ACESSÓ.": 1,
+  "PLOTA.": 1,
+  "LIBERA.": 1,
+};
 
 const initialCalendar: CalendarConfig = {
   startDate: "2026-07-22",
@@ -140,6 +157,7 @@ const initialCalendar: CalendarConfig = {
   holidays: "2026-07-25",
   calendarYear: 2026,
   calendarMonth: 6,
+  operators: initialOperators,
   completeFlow: false,
 };
 
@@ -915,10 +933,16 @@ function getStageMinutes(order: Order, stage: Stage, rules: TimeRule[]) {
 }
 
 function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarConfig) {
-  const resourceCursor = new Map<Stage, Date>();
+  const resourceCursor = new Map<Stage, Date[]>();
   const operations: Operation[] = [];
   const start = getStartDate(calendar);
-  stages.forEach((stage) => resourceCursor.set(stage, new Date(start)));
+  stages.forEach((stage) => {
+    const count = Math.max(1, Math.floor(calendar.operators?.[stage] ?? 1));
+    resourceCursor.set(
+      stage,
+      Array.from({ length: count }, () => new Date(start))
+    );
+  });
 
   const sorted = [...orders].sort((a, b) => {
     const due = parseDate(a.dueDate).getTime() - parseDate(b.dueDate).getTime();
@@ -953,11 +977,22 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
         continue;
       }
 
-      const stageReady = resourceCursor.get(stage) ?? new Date(start);
-      const operationStart = nextWorkingMinute(
-        new Date(Math.max(dependenciesReadyAt.getTime(), stageReady.getTime())),
+      const stageOperators = resourceCursor.get(stage) ?? [new Date(start)];
+      let selectedOperator = 0;
+      let operationStart = nextWorkingMinute(
+        new Date(Math.max(dependenciesReadyAt.getTime(), stageOperators[0].getTime())),
         calendar
       );
+      stageOperators.forEach((operatorReady, index) => {
+        const candidateStart = nextWorkingMinute(
+          new Date(Math.max(dependenciesReadyAt.getTime(), operatorReady.getTime())),
+          calendar
+        );
+        if (candidateStart < operationStart) {
+          operationStart = candidateStart;
+          selectedOperator = index;
+        }
+      });
       const end = addWorkMinutes(operationStart, minutes, calendar);
       operations.push({
         id: `${order.id}-${stage}`,
@@ -966,12 +1001,14 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
         customer: order.customer,
         stage,
         line: order.line,
+        operator: selectedOperator + 1,
         start: operationStart,
         end,
         minutes,
         dueDate: order.dueDate,
       });
-      resourceCursor.set(stage, end);
+      stageOperators[selectedOperator] = end;
+      resourceCursor.set(stage, stageOperators);
       stageFinish.set(stage, end);
     }
   }
@@ -1134,12 +1171,20 @@ export default function Home() {
         addWorkMinutes(getStartDate(calendar), 10 * 24 * 60, calendar),
         calendar
       );
-      const available = workingDays * productiveMinutesPerDay(calendar);
+      const operators = Math.max(1, Math.floor(calendar.operators?.[stage] ?? 1));
+      const perOperatorAvailable = workingDays * productiveMinutesPerDay(calendar);
+      const available = perOperatorAvailable * operators;
+      const requiredOperators = perOperatorAvailable
+        ? Math.max(1, Math.ceil(minutes / perOperatorAvailable))
+        : 1;
       return {
         stage,
         minutes,
         hours: minutes / 60,
         available: available / 60,
+        operators,
+        requiredOperators,
+        perOperatorAvailable: perOperatorAvailable / 60,
         load: available ? minutes / available : 0,
       };
     });
@@ -1200,6 +1245,8 @@ export default function Home() {
   });
   const bottleneck = [...capacity].sort((a, b) => b.load - a.load)[0];
   const totalHours = operations.reduce((total, operation) => total + operation.minutes / 60, 0);
+  const informedOperators = capacity.reduce((total, row) => total + row.operators, 0);
+  const requiredOperators = capacity.reduce((total, row) => total + row.requiredOperators, 0);
 
   function updateRule(ruleId: number, field: keyof TimeRule, value: string) {
     setRules((current) =>
@@ -1232,6 +1279,17 @@ export default function Home() {
         order.id === orderId ? { ...order, [field]: value } : order
       )
     );
+  }
+
+  function updateOperators(stage: Stage, value: string) {
+    const operators = Math.max(1, Math.floor(Number(value) || 1));
+    setCalendar({
+      ...calendar,
+      operators: {
+        ...calendar.operators,
+        [stage]: operators,
+      },
+    });
   }
 
   function addRule() {
@@ -1528,14 +1586,18 @@ export default function Home() {
             <small>comparando fim calculado com data entrega</small>
           </div>
           <div className="metric accent-blue">
-            <span>Horas carregadas</span>
-            <strong>{totalHours.toFixed(1)}h</strong>
-            <small>após regras e calendário</small>
+            <span>Operadores informados</span>
+            <strong>{informedOperators}</strong>
+            <small>{totalHours.toFixed(1)}h carregadas | necessário: {requiredOperators}</small>
           </div>
           <div className="metric accent-orange">
             <span>Gargalo</span>
             <strong>{bottleneck?.stage ?? "-"}</strong>
-            <small>{bottleneck ? `${Math.round(bottleneck.load * 100)}% de carga` : "-"}</small>
+            <small>
+              {bottleneck
+                ? `${Math.round(bottleneck.load * 100)}% de carga | op. ${bottleneck.operators}`
+                : "-"}
+            </small>
           </div>
         </div>
       </section>
@@ -1674,7 +1736,7 @@ export default function Home() {
                             )} · entrega ${formatDate(operation.dueDate)}`}
                           >
                             <strong>{operation.item}</strong>
-                            <span>{formatHour(operation.start)}-{formatHour(operation.end)}</span>
+                            <span>OP{operation.operator} · {formatHour(operation.start)}-{formatHour(operation.end)}</span>
                           </button>
                         );
                       })}
@@ -1697,7 +1759,7 @@ export default function Home() {
                 return (
                   <span className={late ? "detail-chip late" : "detail-chip"} key={operation.id}>
                     <b>{operation.item}</b>
-                    {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
+                    OP{operation.operator} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
                   </span>
                 );
               })}
@@ -1712,19 +1774,32 @@ export default function Home() {
           </div>
           <div className="capacity-list">
             {capacity.map((row) => (
-              <button
+              <article
                 key={row.stage}
                 className={row.stage === selectedStage ? "capacity-row selected" : "capacity-row"}
-                type="button"
-                onClick={() => setSelectedStage(row.stage)}
               >
-                <span>{row.stage}</span>
-                <b>{row.hours.toFixed(1)}h</b>
+                <button type="button" onClick={() => setSelectedStage(row.stage)}>
+                  <span>{row.stage}</span>
+                  <small>{row.hours.toFixed(1)}h carga</small>
+                </button>
+                <label>
+                  Oper.
+                  <input
+                    min="1"
+                    max="50"
+                    type="number"
+                    value={row.operators}
+                    onChange={(event) => updateOperators(row.stage, event.target.value)}
+                  />
+                </label>
                 <i>
                   <span style={{ width: `${Math.min(100, row.load * 100)}%` }} />
                 </i>
                 <em>{Math.round(row.load * 100)}%</em>
-              </button>
+                <strong className={row.requiredOperators > row.operators ? "labor-alert" : ""}>
+                  Necessário: {row.requiredOperators}
+                </strong>
+              </article>
             ))}
           </div>
         </div>
