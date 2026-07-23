@@ -143,7 +143,7 @@ const stageDependencies: Record<Stage, Stage[]> = {
   ],
 };
 
-const STATE_VERSION = "operators-capacity-2026-07-22";
+const STATE_VERSION = "modelo-upload-19-2026-07-23";
 
 const initialOperators: Record<Stage, number> = {
   VIDROS: 1,
@@ -693,36 +693,35 @@ type UploadSequenceRow = [
 ];
 
 const uploadedSequenceRows: UploadSequenceRow[] = [
-  ["SA001849", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "MADEIREIRA SANTA RITA", "ITU", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
-  ["VE279701", "Mercedes-Benz Sprinter 417 10,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,2-1 - 2P - TECIDO - TRILHO - ELEVITTA", "BELISA", "JARDIM DO SERIDÓ (CIOP - ITEM 04)", "2026-07-20", "S", "S", "S", "S", "S", "S", "S", "S", "?", "N", "N/A", "N"],
-  ["TA004006", "Citroën Jumpy Furgão", "LB", "GE", "CJ. BANCOS REC - LB - 3,2,3 - REC - 3P - TECIDO - EXPERT", "GAMMAPAR NEGOCIOS", "PORTO RICO", "2026-07-20", "S", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N", "N"],
-  ["TU021788", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "N", "N/A", "N/A", "N"],
-  ["TU021789", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "?", "N/A", "N/A", "N"],
-  ["TU020681", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-20", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "N", "N/A", "N/A", "N"],
-  ["TA004277", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,2 - 3P - COURVIN PRETO/DIAMANTE/LINHA PRETA - E/S/ J - EXECUTIVO", "STELUTI", "SÃO PAULO", "2026-07-20", "N/A", "S", "S", "N/A", "N", "S", "N", "S", "N", "N", "N/A", "N"],
-  ["TA007830", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "MARILDA AVIAMENTOS", "IBITINGA", "2026-07-21", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
-  ["VE277832", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 8)", "2026-07-22", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["VE278661", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "PONTO DOS VOLANTES (CISARP ITEM 23)", "2026-07-23", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
-  ["VE281116", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,3 - 2P - TECIDO - TRILHO", "BELISA", "BELA CRUZ (ADESAO CISARP ITEM 22)", "2026-07-24", "N", "?", "S", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["VE280965", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3,4 - 3P - TECIDO - NORMAL", "LIZARD", "CONGONHAS", "2026-07-24", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
-  ["VE281194", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "MONTE SANTO DE MINAS (ADESÃO CISARP ITEM 23)", "2026-07-24", "N", "?", "S", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["TA008272", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "RTR", "SÃO PAULO", "2026-07-24", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["TA008271", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "RTR", "SÃO PAULO", "2026-07-24", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["VE278805", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (CISARP ITEM 23)", "2026-07-24", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
-  ["TE277239", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4;2;3;3;3 - 2P - TECIDO - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 7)", "2026-07-25", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["TA005694", "Citroën Jumper Furgão", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,3,2,2-1 - 2P - TECIDO - PME 2A - BJD - FOCA", "FRP", "SÃO JOÃO DO OESTE", "2026-07-26", "S", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["VE277821", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS FIXOS - LB - 1 E, 1 E, 1 E, 1 D - FIXO - 2P - TEIDO - NORMAL", "BELISA", "NOVA PONTE (CRAVINHOS - ITEM 08)", "2026-07-31", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
-  ["VJ666369", "Renault Master L3H2", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3 - 3P - TECIDO - NORMAL", "ASSOC. PROP. RES. PORTO SÃO PEDRO", "PORTO FELIZ", "2026-07-31", "S", "N", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
-  ["TA009754", "Citroën Jumpy Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/DIAMANTE/LINHA BRANCA - E/S/ J - EXECUTIVO", "PJ MOBILIDADE", "SÃO PAULO", "2026-08-02", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["TA004272", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "VM CALÇADOS", "GUARULHOS", "2026-08-03", "N/A", "S", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["VJ665708", "Renault Master L3H2", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,2-1 - 2P - TECIDO - NORMAL - FOCA", "BR PRIME", " BURITIS (ADESAO BALSAS)", "2026-08-05", "S", "S", "S", "N/A", "N", "S", "N", "S", "N", "N", "N/A", "N"],
+  ["VE278661", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "PONTO DOS VOLANTES (CISARP ITEM 23)", "2026-07-23", "S", "S", "S", "S", "S", "S", "S", "S", "S", "N", "N/A", "N"],
+  ["VE277832", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 8)", "2026-07-24", "S", "N", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
+  ["VE278805", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (CISARP ITEM 23)", "2026-07-24", "S", "?", "S", "S", "S", "S", "S", "S", "S", "N", "N/A", "N"],
+  ["TE277239", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4;2;3;3;3 - 2P - TECIDO - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 7)", "2026-07-25", "S", "N", "S", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TU021788", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-27", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
+  ["TU021789", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-27", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
+  ["TU020681", "Ford Transit L3H2 vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3 - 2P - TECIDO", "SANTA CATARINA", "CHAPECO", "2026-07-27", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "S", "N/A", "N/A", "N"],
+  ["TA004277", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,2 - 3P - COURVIN PRETO/DIAMANTE/LINHA PRETA - E/S/ J - EXECUTIVO", "STELUTI", "SÃO PAULO", "2026-07-27", "N/A", "S", "S", "N/A", "S", "S", "N", "S", "N", "N", "N/A", "N"],
+  ["VE281116", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,3 - 2P - TECIDO - TRILHO", "BELISA", "BELA CRUZ (ADESAO CISARP ITEM 22)", "2026-07-29", "S", "?", "S", "N", "S", "S", "N", "S", "N", "N", "N/A", "N"],
+  ["VE281194", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "MONTE SANTO DE MINAS (ADESÃO CISARP ITEM 23)", "2026-07-29", "S", "?", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
+  ["VE280965", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3,4 - 3P - TECIDO - NORMAL", "LIZARD", "CONGONHAS", "2026-07-30", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA008272", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "RTR", "SÃO PAULO", "2026-07-30", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA008271", "Fiat Scudo Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "RTR", "SÃO PAULO", "2026-07-30", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA005694", "Citroën Jumper Furgão", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,3,2,2-1 - 2P - TECIDO - PME 2A - BJD - FOCA", "FRP", "SÃO JOÃO DO OESTE", "2026-07-30", "S", "S", "S", "N", "N", "S", "S", "S", "N", "N", "N/A", "N"],
+  ["TA001716", "Peugeot Expert Vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 3,2,3 - 2P - TECIDO - E/S/ J", "SANTA CATARINA", "ITAPERUÇU", "2026-07-31", "N/A", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N", "N"],
+  ["TA001731", "Peugeot Expert Vitrê", "LB", "GE", "CJ BANCOS REC - MC - LB - 3,3 - 3P - COURVIN - E/S/J", "SANTA CATARINA", "RIBEIRÃO BRANCO", "2026-07-31", "N/A", "N", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N", "N"],
+  ["VE277821", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "NOVA PONTE (CRAVINHOS - ITEM 08)", "2026-07-31", "S", "?", "S", "N", "S", "S", "N", "N", "N", "N", "N/A", "N"],
+  ["VJ666369", "Renault Master L3H2", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3 - 3P - TECIDO - NORMAL", "ASSOC. PROP. RES. PORTO SÃO PEDRO", "PORTO FELIZ", "2026-07-31", "S", "S", "S", "N/A", "S", "S", "S", "S", "S", "N/A", "N/A", "N"],
+  ["TA009754", "Citroën Jumpy Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/DIAMANTE/LINHA BRANCA - E/S/ J - EXECUTIVO", "PJ MOBILIDADE", "SÃO PAULO", "2026-08-02", "S", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA004272", "Citroën Jumpy Vitrê", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "VM CALÇADOS", "GUARULHOS", "2026-08-03", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
   ["TE270315", "Mercedes-Benz Sprinter 417 10,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,3,3,2-1 - 2P - TECIDO - TRILHO - ELEVITTA", "BELISA", "SIDROLÂNDIA (ADESAO CIDASG)", "2026-08-05", "S", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N/A", "N"],
   ["TA009491", "Fiat Scudo Vitrê", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 3,3 - 3P - TECIDO - E/S/ J", "FMIS", "DOURADO", "2026-08-07", "N/A", "N", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
-  ["TA008270", "Fiat Scudo Vitrê", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/RETILINEA/LINHA PRETA - E/S/ J - EXECUTIVO", "HI SERVICE", "SÃO PAULO", "2026-08-07", "N/A", "S", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
-  ["TA009749", "Citroën Jumpy Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/RETILINEA/LINHA PRETA - E/S/ J - EXECUTIVO", "HI SERVICE", "SÃO PAULO", "2026-08-07", "S", "S", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
-  ["TA007442", "Peugeot Expert Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN MARROM/BOOMERANG/LINHA DOURADA - E/S/ J - EXECUTIVO", "FRIENDSHIP", "RIO DE JANEIRO", "2026-08-08", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["TA000944", "Peugeot Expert Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,2-1 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "RECANTO SÃO BENEDITO", "SÃO BENTO DO SAPUCAI", "2026-08-09", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
-  ["TA008976", "Peugeot Expert Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN MARROM/BOOMERANG/LINHA DOURADA - E/S/ J - EXECUTIVO", "COMODITA 3 TRANSPORTE", "SÃO PAULO", "2026-08-14", "S", "N", "N", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA008270", "Fiat Scudo Vitrê", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/RETILINEA/LINHA PRETA - E/S/ J - EXECUTIVO", "HI SERVICE", "SÃO PAULO", "2026-08-07", "N/A", "S", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA009749", "Citroën Jumpy Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/RETILINEA/LINHA PRETA - E/S/ J - EXECUTIVO", "HI SERVICE", "SÃO PAULO", "2026-08-07", "S", "S", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA007442", "Peugeot Expert Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN MARROM/BOOMERANG/LINHA DOURADA - E/S/ J - EXECUTIVO", "FRIENDSHIP", "RIO DE JANEIRO", "2026-08-08", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA000944", "Peugeot Expert Furgão", "LE", "GE", "CJ BANCOS REC- LE - 3,2-1 - 3P - COURVIN PRETO/BOOMERANG/LINHA PRETA - E/S/ J - EXECUTIVO", "RECANTO SÃO BENEDITO", "SÃO BENTO DO SAPUCAI", "2026-08-09", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
+  ["TA008976", "Peugeot Expert Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN MARROM/BOOMERANG/LINHA DOURADA - E/S/ J - EXECUTIVO", "COMODITA 3 TRANSPORTE", "SÃO PAULO", "2026-08-14", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TMB71567", "Peugeot Boxer Furgão", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3 - 2P - TECIDO - BJD (INCORPOL)", "D+ SAÚDE", "PERDIGÃO", "2026-08-20", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
+  ["TA011315", "Peugeot Expert Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "OURO VANS TRANSPORTE", "SÃO PAULO", "2026-08-28", "N", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
 ];
 
 function sequenceStages(row: UploadSequenceRow): Record<Stage, string> {
@@ -1222,6 +1221,8 @@ export default function Home() {
         calendar?: Partial<CalendarConfig>;
       };
       if (parsed.version !== STATE_VERSION) {
+        if (parsed.rules) setRules(parsed.rules);
+        if (parsed.calendar) setCalendar(restoreCalendarConfig(parsed.calendar));
         window.localStorage.removeItem("ji-mrp-state");
         return;
       }
@@ -2088,7 +2089,7 @@ export default function Home() {
         <div className="panel wide">
           <div className="section-head">
             <h2>Pedidos sequenciados</h2>
-            <span>Sequência importada do modelo_upload (18).xlsx</span>
+            <span>Sequência importada do modelo_upload (19).xlsx</span>
           </div>
           <div className="table-wrap">
             <table>
