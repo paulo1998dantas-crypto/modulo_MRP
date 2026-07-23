@@ -75,6 +75,12 @@ type Operation = {
   dueDate: string;
 };
 
+type GanttLane = {
+  key: string;
+  stage: Stage;
+  operator: number;
+};
+
 const stages: Stage[] = [
   "VIDROS",
   "A/C",
@@ -166,6 +172,10 @@ const initialCalendar: CalendarConfig = {
 
 function planningHorizonDays(calendar: CalendarConfig) {
   return Math.max(1, Math.min(365, Math.floor(Number(calendar.horizonDays) || 10)));
+}
+
+function operatorCountForStage(calendar: CalendarConfig, stage: Stage) {
+  return Math.max(1, Math.floor(Number(calendar.operators?.[stage]) || 1));
 }
 
 function restoreCalendarConfig(calendar: Partial<CalendarConfig>) {
@@ -1000,7 +1010,7 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
   if (!hasProductiveCalendar(calendar)) return operations;
   const start = getStartDate(calendar);
   stages.forEach((stage) => {
-    const count = Math.max(1, Math.floor(calendar.operators?.[stage] ?? 1));
+    const count = operatorCountForStage(calendar, stage);
     resourceCursor.set(
       stage,
       Array.from({ length: count }, () => new Date(start))
@@ -1257,7 +1267,7 @@ export default function Home() {
         .filter((operation) => operation.stage === stage)
         .reduce((total, operation) => total + operation.minutes, 0);
       const workingDays = countWorkingDays(capacityStart, capacityEnd, calendar);
-      const operators = Math.max(1, Math.floor(calendar.operators?.[stage] ?? 1));
+      const operators = operatorCountForStage(calendar, stage);
       const perOperatorAvailable = workingDays * productiveMinutesPerDay(calendar);
       const available = perOperatorAvailable * operators;
       const requiredOperators = perOperatorAvailable
@@ -1334,6 +1344,18 @@ export default function Home() {
   }, [ganttDays]);
 
   const ganttHourMarks = useMemo(() => calendarTimeMarks(calendar), [calendar]);
+
+  const ganttLanes = useMemo(
+    () =>
+      stages.flatMap((stage) =>
+        Array.from({ length: operatorCountForStage(calendar, stage) }, (_, index) => ({
+          key: `${stage}-${index + 1}`,
+          stage,
+          operator: index + 1,
+        }))
+      ),
+    [calendar]
+  );
 
   const selectedOperations = useMemo(
     () =>
@@ -1754,7 +1776,7 @@ export default function Home() {
               style={{ gridTemplateColumns: `230px ${ganttScale.width}px` }}
             >
               <div className="cm25-corner">
-                <strong>Processo</strong>
+                <strong>Processo / posto</strong>
                 <span>Carga / operações</span>
               </div>
               <div
@@ -1813,21 +1835,24 @@ export default function Home() {
                 </div>
               </div>
 
-              {stages.map((stage) => {
-                const laneOps = operations.filter((operation) => operation.stage === stage);
-                const stageHours = laneOps.reduce(
+              {ganttLanes.map((lane) => {
+                const laneOps = operations.filter(
+                  (operation) =>
+                    operation.stage === lane.stage && operation.operator === lane.operator
+                );
+                const laneHours = laneOps.reduce(
                   (total, operation) => total + operation.minutes / 60,
                   0
                 );
                 return (
-                  <div className="cm25-row-shell" key={stage}>
+                  <div className="cm25-row-shell" key={lane.key}>
                     <button
                       type="button"
-                      className={stage === selectedStage ? "cm25-process selected" : "cm25-process"}
-                      onClick={() => setSelectedStage(stage)}
+                      className={lane.stage === selectedStage ? "cm25-process selected" : "cm25-process"}
+                      onClick={() => setSelectedStage(lane.stage)}
                     >
-                      <strong>{stage}</strong>
-                      <span>{stageHours.toFixed(1)}h · {laneOps.length} ops</span>
+                      <strong>{lane.stage} {lane.operator}</strong>
+                      <span>Posto {lane.operator} · {laneHours.toFixed(1)}h · {laneOps.length} ops</span>
                     </button>
                     <div
                       className="cm25-track"
@@ -1842,7 +1867,7 @@ export default function Home() {
                           <span
                             aria-hidden="true"
                             className="cm25-off-column"
-                            key={`off-${stage}-${dayKey(day)}`}
+                            key={`off-${lane.key}-${dayKey(day)}`}
                             style={{ left: `${index * 150}px`, width: "150px" }}
                           />
                         );
@@ -1866,7 +1891,7 @@ export default function Home() {
                           <span
                             aria-hidden="true"
                             className="cm25-lunch-column"
-                            key={`lunch-${stage}-${dayKey(day)}`}
+                            key={`lunch-${lane.key}-${dayKey(day)}`}
                             style={{
                               left: `${Math.max(0, left)}px`,
                               width: `${Math.max(4, width)}px`,
@@ -1889,11 +1914,11 @@ export default function Home() {
                             className={late ? "cm25-op late" : "cm25-op"}
                             key={operation.id}
                             type="button"
-                            onClick={() => setSelectedStage(stage)}
+                            onClick={() => setSelectedStage(lane.stage)}
                             style={{
                               left: `${Math.max(0, left)}px`,
                               width: `${Math.max(112, width)}px`,
-                              backgroundColor: stageColors[stage],
+                              backgroundColor: stageColors[lane.stage],
                             }}
                             title={`${operation.stage} · O.S ${operation.os} · Pedido ${operation.item} · ${
                               operation.customer
