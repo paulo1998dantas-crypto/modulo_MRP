@@ -81,6 +81,11 @@ type GanttLane = {
   operator: number;
 };
 
+type ScheduleResult = {
+  operations: Operation[];
+  finishByOrder: Map<number, Date>;
+};
+
 const stages: Stage[] = [
   "VIDROS",
   "A/C",
@@ -1004,10 +1009,11 @@ function getStageMinutes(order: Order, stage: Stage, rules: TimeRule[]) {
   return fullMinutes;
 }
 
-function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarConfig) {
+function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarConfig): ScheduleResult {
   const resourceCursor = new Map<Stage, Date[]>();
   const operations: Operation[] = [];
-  if (!hasProductiveCalendar(calendar)) return operations;
+  const finishByOrder = new Map<number, Date>();
+  if (!hasProductiveCalendar(calendar)) return { operations, finishByOrder };
   const start = getStartDate(calendar);
   stages.forEach((stage) => {
     const count = operatorCountForStage(calendar, stage);
@@ -1024,6 +1030,7 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
 
   for (const order of sorted) {
     const stageFinish = new Map<Stage, Date>();
+    const orderOperationEnds: Date[] = [];
     stages.forEach((stage) => {
       if (!shouldSchedule(order.stages[stage], calendar.completeFlow)) {
         stageFinish.set(stage, new Date(start));
@@ -1084,10 +1091,18 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
       stageOperators[selectedOperator] = end;
       resourceCursor.set(stage, stageOperators);
       stageFinish.set(stage, end);
+      orderOperationEnds.push(end);
+    }
+
+    if (orderOperationEnds.length) {
+      finishByOrder.set(
+        order.id,
+        new Date(Math.max(...orderOperationEnds.map((finish) => finish.getTime())))
+      );
     }
   }
 
-  return operations;
+  return { operations, finishByOrder };
 }
 
 function formatDateTime(date: Date) {
@@ -1245,19 +1260,12 @@ export default function Home() {
     return orders.filter((order) => normalize(order.line) === normalize(filter));
   }, [filter, orders]);
 
-  const operations = useMemo(
+  const schedule = useMemo(
     () => buildSchedule(filteredOrders, rules, calendar),
     [filteredOrders, rules, calendar]
   );
-
-  const finishByOrder = useMemo(() => {
-    const map = new Map<number, Date>();
-    operations.forEach((operation) => {
-      const current = map.get(operation.orderId);
-      if (!current || operation.end > current) map.set(operation.orderId, operation.end);
-    });
-    return map;
-  }, [operations]);
+  const operations = schedule.operations;
+  const finishByOrder = schedule.finishByOrder;
 
   const capacity = useMemo(() => {
     const capacityStart = getStartDate(calendar);
