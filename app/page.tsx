@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { mrpISeed } from "./data/mrpISeed";
 
 type Stage =
   | "VIDROS"
@@ -84,6 +85,33 @@ type GanttLane = {
 type ScheduleResult = {
   operations: Operation[];
   finishByOrder: Map<number, Date>;
+};
+
+type MrpIAnalysisRow = {
+  pn: string;
+  description: string;
+  available: number;
+  leadWeeks: number;
+  totalDemand: number;
+  totalIncoming: number;
+  totalSuggested: number;
+  safetyStock: number;
+  firstSuggestedWeek: number | null;
+  projected: number[];
+  suggested: number[];
+  demand: number[];
+  incoming: number[];
+};
+
+type MrpIPlan = {
+  weeks: number[];
+  rows: MrpIAnalysisRow[];
+  totalDemand: number;
+  totalIncoming: number;
+  totalSuggested: number;
+  shortageItems: number;
+  linkedRequirements: number;
+  currentWeekRequirements: number;
 };
 
 const stages: Stage[] = [
@@ -1131,6 +1159,173 @@ function weekRangeLabel(date: Date) {
   return `${weekLabel(date)} · ${date.getFullYear()}`;
 }
 
+function excelWeekNumber(date: Date) {
+  const first = new Date(date.getFullYear(), 0, 1);
+  const days = Math.floor((startOfDay(date).getTime() - first.getTime()) / 86400000);
+  return Math.ceil((days + first.getDay() + 1) / 7);
+}
+
+function mrpWeekSequence(start: Date, horizonDays: number) {
+  const weeks: number[] = [];
+  const horizonWeeks = Math.max(7, Math.min(26, Math.ceil(horizonDays / 7)));
+  let cursor = startOfDay(start);
+  while (weeks.length < horizonWeeks) {
+    const week = excelWeekNumber(cursor);
+    if (!weeks.includes(week)) weeks.push(week);
+    cursor = addDays(cursor, 7);
+  }
+  return weeks;
+}
+
+function activePurchaseStatus(status: string) {
+  const value = normalize(status);
+  return (
+    !value.includes("CONCLUID") &&
+    !value.includes("FINALIZ") &&
+    !value.includes("CANCEL") &&
+    !value.includes("RECEBID")
+  );
+}
+
+function addToBucket(
+  bucket: Map<string, Map<number, number>>,
+  pn: string,
+  week: number,
+  quantity: number
+) {
+  if (!bucket.has(pn)) bucket.set(pn, new Map());
+  const byWeek = bucket.get(pn);
+  if (!byWeek) return;
+  byWeek.set(week, (byWeek.get(week) ?? 0) + quantity);
+}
+
+function readBucket(bucket: Map<string, Map<number, number>>, pn: string, week: number) {
+  return bucket.get(pn)?.get(week) ?? 0;
+}
+
+function buildMrpIPlan(
+  finishByItem: Map<string, Date>,
+  calendar: CalendarConfig,
+  safetyFactor: number
+): MrpIPlan {
+  const start = getStartDate(calendar);
+  const weeks = mrpWeekSequence(start, planningHorizonDays(calendar));
+  const currentWeek = weeks[0] ?? excelWeekNumber(start);
+  const demandByPn = new Map<string, Map<number, number>>();
+  const incomingByPn = new Map<string, Map<number, number>>();
+  let linkedRequirements = 0;
+  let currentWeekRequirements = 0;
+
+  mrpISeed.requirements.forEach((requirement) => {
+    const quantity = Number(requirement.quantity) || 0;
+    if (!requirement.pn || quantity <= 0) return;
+    const finish = finishByItem.get(normalize(requirement.osRef));
+    if (finish) {
+      const week = excelWeekNumber(finish);
+      if (!weeks.includes(week)) return;
+      linkedRequirements += 1;
+      addToBucket(demandByPn, requirement.pn, week, quantity);
+      return;
+    }
+    currentWeekRequirements += 1;
+    addToBucket(demandByPn, requirement.pn, currentWeek, quantity);
+  });
+
+  mrpISeed.purchases.forEach((purchase) => {
+    const quantity = Number(purchase.quantity) || 0;
+    if (!purchase.pn || quantity <= 0 || !activePurchaseStatus(purchase.status)) return;
+    const week = Number(purchase.deliveryWeek) || currentWeek;
+    if (!weeks.includes(week)) return;
+    addToBucket(incomingByPn, purchase.pn, week, quantity);
+  });
+
+  const inventoryByPn = new Map(mrpISeed.inventory.map((item) => [item.pn, item]));
+  const leadByPn = new Map(mrpISeed.leadTimes.map((item) => [item.pn, item]));
+  const pnSet = new Set<string>();
+  mrpISeed.leadTimes.forEach((item) => pnSet.add(item.pn));
+  mrpISeed.inventory.forEach((item) => pnSet.add(item.pn));
+  demandByPn.forEach((_, pn) => pnSet.add(pn));
+  incomingByPn.forEach((_, pn) => pnSet.add(pn));
+
+  const rows = [...pnSet].map((pn) => {
+    const inventory = inventoryByPn.get(pn);
+    const lead = leadByPn.get(pn);
+    const leadWeeks = Math.max(1, Math.ceil((Number(lead?.calendarDays) || 7) / 7));
+    const available = Number(inventory?.available) || 0;
+    const demand = weeks.map((week) => readBucket(demandByPn, pn, week));
+    const incoming = weeks.map((week) => readBucket(incomingByPn, pn, week));
+    const totalDemand = demand.reduce((total, value) => total + value, 0);
+    const totalIncoming = incoming.reduce((total, value) => total + value, 0);
+    const averageFuture = weeks.length ? totalDemand / weeks.length : 0;
+    const safetyStock = (averageFuture / 22) * 7;
+    const projected: number[] = [];
+    const suggested = Array.from({ length: weeks.length }, () => 0);
+    let stock = available;
+    let previousShortage = 0;
+
+    weeks.forEach((_, index) => {
+      stock = stock - demand[index] + incoming[index] + safetyStock * safetyFactor;
+      projected.push(stock);
+      const shortage = Math.max(0, -stock);
+      const incrementalShortage = Math.max(0, shortage - previousShortage);
+      if (incrementalShortage > 0) {
+        const purchaseIndex = Math.max(0, index - leadWeeks);
+        suggested[purchaseIndex] += incrementalShortage;
+      }
+      previousShortage = shortage;
+    });
+
+    const totalSuggested = suggested.reduce((total, value) => total + value, 0);
+    const firstSuggestedIndex = suggested.findIndex((value) => value > 0);
+    return {
+      pn,
+      description: lead?.description || inventory?.description || "",
+      available,
+      leadWeeks,
+      totalDemand,
+      totalIncoming,
+      totalSuggested,
+      safetyStock,
+      firstSuggestedWeek: firstSuggestedIndex >= 0 ? weeks[firstSuggestedIndex] : null,
+      projected,
+      suggested,
+      demand,
+      incoming,
+    };
+  });
+
+  const relevantRows = rows
+    .filter(
+      (row) =>
+        row.totalDemand > 0 ||
+        row.totalIncoming > 0 ||
+        row.totalSuggested > 0 ||
+        row.projected.some((value) => value < 0)
+    )
+    .sort((a, b) => {
+      if (b.totalSuggested !== a.totalSuggested) return b.totalSuggested - a.totalSuggested;
+      if (b.totalDemand !== a.totalDemand) return b.totalDemand - a.totalDemand;
+      return a.pn.localeCompare(b.pn);
+    });
+
+  return {
+    weeks,
+    rows: relevantRows,
+    totalDemand: relevantRows.reduce((total, row) => total + row.totalDemand, 0),
+    totalIncoming: relevantRows.reduce((total, row) => total + row.totalIncoming, 0),
+    totalSuggested: relevantRows.reduce((total, row) => total + row.totalSuggested, 0),
+    shortageItems: relevantRows.filter((row) => row.projected.some((value) => value < 0)).length,
+    linkedRequirements,
+    currentWeekRequirements,
+  };
+}
+
+function formatQuantity(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: value % 1 ? 2 : 0,
+  }).format(value);
+}
+
 function startOfDay(date: Date) {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
@@ -1209,6 +1404,8 @@ export default function Home() {
   const [calendar, setCalendar] = useState<CalendarConfig>(initialCalendar);
   const [selectedStage, setSelectedStage] = useState<Stage>("REVEST");
   const [filter, setFilter] = useState("todos");
+  const [mrpSearch, setMrpSearch] = useState("");
+  const [mrpSafetyFactor, setMrpSafetyFactor] = useState(0);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("ji-mrp-state");
@@ -1267,6 +1464,29 @@ export default function Home() {
   );
   const operations = schedule.operations;
   const finishByOrder = schedule.finishByOrder;
+  const finishByItem = useMemo(() => {
+    const mapped = new Map<string, Date>();
+    filteredOrders.forEach((order) => {
+      const finish = finishByOrder.get(order.id);
+      if (finish) mapped.set(normalize(order.item), finish);
+    });
+    return mapped;
+  }, [filteredOrders, finishByOrder]);
+
+  const mrpIPlan = useMemo(
+    () => buildMrpIPlan(finishByItem, calendar, mrpSafetyFactor),
+    [calendar, finishByItem, mrpSafetyFactor]
+  );
+
+  const mrpRows = useMemo(() => {
+    const search = normalize(mrpSearch);
+    const rows = search
+      ? mrpIPlan.rows.filter(
+          (row) => normalize(row.pn).includes(search) || normalize(row.description).includes(search)
+        )
+      : mrpIPlan.rows;
+    return rows.slice(0, 80);
+  }, [mrpIPlan.rows, mrpSearch]);
 
   const capacity = useMemo(() => {
     const capacityStart = getStartDate(calendar);
@@ -1757,6 +1977,133 @@ export default function Home() {
                 ? `${Math.round(bottleneck.load * 100)}% de carga | op. ${bottleneck.operators}`
                 : "-"}
             </small>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-[1600px] gap-4 px-5 pb-5">
+        <div className="panel wide mrp-panel">
+          <div className="section-head mrp-head">
+            <div>
+              <h2>MRP I - materiais</h2>
+              <span>
+                {mrpIPlan.weeks.length} semanas no horizonte | base 22.07.26 - Planejamento Mestre
+              </span>
+            </div>
+            <div className="mrp-controls">
+              <label>
+                Busca
+                <input
+                  type="search"
+                  value={mrpSearch}
+                  onChange={(event) => setMrpSearch(event.target.value)}
+                  placeholder="PN ou descricao"
+                />
+              </label>
+              <label>
+                Seguranca
+                <input
+                  min="0"
+                  max="3"
+                  step="0.25"
+                  type="number"
+                  value={mrpSafetyFactor}
+                  onChange={(event) =>
+                    setMrpSafetyFactor(Math.max(0, Number(event.target.value) || 0))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mrp-kpis">
+            <div>
+              <span>Demanda</span>
+              <strong>{formatQuantity(mrpIPlan.totalDemand)}</strong>
+            </div>
+            <div>
+              <span>Compras abertas</span>
+              <strong>{formatQuantity(mrpIPlan.totalIncoming)}</strong>
+            </div>
+            <div>
+              <span>Sugestao compra</span>
+              <strong>{formatQuantity(mrpIPlan.totalSuggested)}</strong>
+            </div>
+            <div>
+              <span>Itens em ruptura</span>
+              <strong>{mrpIPlan.shortageItems}</strong>
+            </div>
+          </div>
+
+          <div className="mrp-source-strip">
+            <span>Necessidades com O.S: {mrpIPlan.linkedRequirements}</span>
+            <span>Semana atual: {mrpIPlan.currentWeekRequirements}</span>
+            <span>Lead times: {mrpISeed.leadTimes.length}</span>
+            <span>Estoque: {mrpISeed.inventory.length}</span>
+          </div>
+
+          <div className="table-wrap mrp-table-wrap">
+            <table className="mrp-table">
+              <thead>
+                <tr>
+                  <th>PN</th>
+                  <th>Material</th>
+                  <th>Disp.</th>
+                  <th>LT</th>
+                  <th>Demanda</th>
+                  <th>Transito</th>
+                  <th>Sugestao</th>
+                  <th>Comprar</th>
+                  <th>Semanas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mrpRows.map((row) => (
+                  <tr key={row.pn}>
+                    <td>
+                      <strong>{row.pn}</strong>
+                    </td>
+                    <td>
+                      {row.description}
+                      <small>Estoque seguranca: {formatQuantity(row.safetyStock)}</small>
+                    </td>
+                    <td>{formatQuantity(row.available)}</td>
+                    <td>{row.leadWeeks} sem</td>
+                    <td>{formatQuantity(row.totalDemand)}</td>
+                    <td>{formatQuantity(row.totalIncoming)}</td>
+                    <td className={row.totalSuggested > 0 ? "need-cell" : ""}>
+                      {formatQuantity(row.totalSuggested)}
+                    </td>
+                    <td>{row.firstSuggestedWeek ? `S${row.firstSuggestedWeek}` : "-"}</td>
+                    <td>
+                      <div className="mrp-week-strip">
+                        {mrpIPlan.weeks.map((week, index) => (
+                          <span
+                            className={[
+                              "mrp-week-chip",
+                              row.projected[index] < 0 ? "negative" : "",
+                              row.suggested[index] > 0 ? "buy" : "",
+                            ].join(" ")}
+                            key={`${row.pn}-${week}`}
+                            title={`S${week} | demanda ${formatQuantity(
+                              row.demand[index]
+                            )} | entrada ${formatQuantity(row.incoming[index])} | estoque ${formatQuantity(
+                              row.projected[index]
+                            )} | comprar ${formatQuantity(row.suggested[index])}`}
+                          >
+                            <b>S{week}</b>
+                            <em>{formatQuantity(row.projected[index])}</em>
+                            {row.suggested[index] > 0 ? (
+                              <small>+{formatQuantity(row.suggested[index])}</small>
+                            ) : null}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
