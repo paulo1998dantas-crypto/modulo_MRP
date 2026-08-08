@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+.idea/
 /.pnp
 .pnp.*
 .yarn/*
@@ -32,9 +33,12 @@ yarn-error.log*
 *.log
 *.tar.gz
 *.zip
+outputs/windows/
+build/windows-exe/
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel

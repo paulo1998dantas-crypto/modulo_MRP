@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ji-modulo-mrp
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: MRP_SESSION_SECRET
+        generateValue: true

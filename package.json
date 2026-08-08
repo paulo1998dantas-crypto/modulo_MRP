@@ -1,5 +1,5 @@
 {
-  "name": "site-creator-vinext-starter",
+  "name": "ji-modulo-mrp",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -9,6 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
+    "desktop:build": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-exe.ps1",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

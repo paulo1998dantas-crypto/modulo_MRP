@@ -1,98 +1,45 @@
-# vinext-starter
+# MRP JI Montadora
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+MRP I e MRP II para planejamento de materiais, capacidade e cenários da JI Montadora.
 
-## Prerequisites
+## Acesso
 
-- Node.js `>=22.13.0`
+O MRP usa a mesma base de usuários do ERP. Somente usuários ativos que possuam o papel `PCP` ou `ADMIN` podem entrar. A validação ocorre no servidor e os dados operacionais não são enviados ao navegador antes da autenticação.
 
-## Quick Start
+## Fontes de dados
 
-```bash
-npm install
-npm run dev
-npm run build
-```
+- Estoque disponível e movimentações: módulo Estoque.
+- Pedidos de compra em trânsito: módulo Suprimentos.
+- Necessidades e B.O.M.: Cadastro e O.S. abertas.
+- WIP, sequência e etapas: MES.
+- Cenários simulados: armazenamento local do navegador; eles não criam O.S., pedidos, empenhos ou movimentações.
 
-This starter does not use `wrangler.jsonc`.
+O MRP é de leitura operacional: ele não altera saldo, pedido de compra, O.S., B.O.M. nem apontamento produtivo.
 
-## Included Shape
+## Execução local
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+1. Copie `.env.example` para `.env.local`.
+2. Preencha `SUPABASE_URL`, uma chave de serviço do Supabase e `MRP_SESSION_SECRET` com valor aleatório de pelo menos 32 caracteres.
+3. Execute `npm install` e `npm run dev`.
 
-## Workspace Auth Headers
+Em um teste local de build de produção por HTTP, use temporariamente `MRP_SESSION_COOKIE_SECURE=0`. Não leve essa variável ao Render.
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
+Para gerar o executável Windows já existente, use `pnpm run desktop:build`.
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+## Render
 
-Treat the full name as optional and fall back to email when it is absent:
+O arquivo `render.yaml` descreve o Web Service. Configure somente no ambiente do serviço:
 
-```tsx
-import { headers } from "next/headers";
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `MRP_SESSION_SECRET`
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
+Nunca adicione chaves reais ao repositório. O serviço deve ser publicado no plano `free`, salvo mudança explícita de plano pela JI Montadora.
 
-  const displayName = fullName ?? email;
-  // ...
-}
-```
+## Validação recomendada
 
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+1. Usuário PCP entra e consulta MRP I e MRP II.
+2. Usuário ADMIN entra e consulta os mesmos dados.
+3. Usuário sem PCP/ADMIN recebe bloqueio de acesso.
+4. Sem sessão, `/api/mrp-i` e `/api/wip` respondem `401`.
+5. Após encerrar a sessão, os endpoints permanecem bloqueados.

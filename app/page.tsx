@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { mrpISeed } from "./data/mrpISeed";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { buildMrpLivePlan, type MrpLiveSnapshot, type MrpPeriodicity } from "./lib/mrp-live";
+import { downloadXlsx } from "./lib/client-xlsx";
 
 type Stage =
   | "VIDROS"
@@ -19,6 +20,8 @@ type Stage =
 
 type Order = {
   id: number;
+  source?: "WIP" | "SIMULACAO";
+  workOrderId?: string;
   status: string;
   item: string;
   dueDate: string;
@@ -105,6 +108,7 @@ type MrpIAnalysisRow = {
 
 type MrpIPlan = {
   weeks: number[];
+  currentWeek: number;
   rows: MrpIAnalysisRow[];
   totalDemand: number;
   totalIncoming: number;
@@ -112,6 +116,63 @@ type MrpIPlan = {
   shortageItems: number;
   linkedRequirements: number;
   currentWeekRequirements: number;
+};
+
+type WipSnapshot = {
+  generatedAt: string;
+  source: "SUPABASE";
+  orders: Order[];
+  counts: {
+    total: number;
+    patio: number;
+    production: number;
+    withSequence: number;
+  };
+  warnings: string[];
+};
+
+type SimulationVehicle = {
+  id: string;
+  reference: string;
+  dueDate: string;
+  customer: string;
+  city: string;
+  model: string;
+  chassis: string;
+  line: string;
+  transformation: string;
+  bank: string;
+  ac: string;
+  acType: string;
+  accessory: string;
+  plot: string;
+  sequence: number;
+  stages: Record<Stage, string>;
+};
+
+type SimulationMaterial = {
+  id: string;
+  pn: string;
+  description: string;
+  unit: string;
+  needDate: string;
+  quantity: number;
+  note: string;
+};
+
+type Scenario = {
+  id: string;
+  name: string;
+  createdAt: string;
+  vehicles: SimulationVehicle[];
+  materials: SimulationMaterial[];
+};
+
+type WorkspaceView = "overview" | "mrp2" | "mrp1" | "scenarios" | "settings";
+
+type MrpSessionUser = {
+  username: string;
+  roles: string[];
 };
 
 const stages: Stage[] = [
@@ -171,7 +232,7 @@ const stageDependencies: Record<Stage, Stage[]> = {
   ],
 };
 
-const STATE_VERSION = "modelo-upload-19-2026-07-23";
+const STATE_VERSION = "supabase-only-2026-08-06";
 
 const initialOperators: Record<Stage, number> = {
   VIDROS: 1,
@@ -374,6 +435,10 @@ const initialRules: TimeRule[] = [
   },
 ];
 
+/*
+ * Carteira de exemplo aposentada em 06/08/2026.
+ * A programação padrão agora é construída exclusivamente a partir do WIP do
+ * Supabase; veículos hipotéticos entram apenas por um cenário explícito.
 const initialOrders: Order[] = [
   {
     id: 2992,
@@ -696,6 +761,7 @@ const initialOrders: Order[] = [
     },
   },
 ];
+*/
 
 type UploadSequenceRow = [
   string,
@@ -720,7 +786,8 @@ type UploadSequenceRow = [
   string
 ];
 
-const uploadedSequenceRows: UploadSequenceRow[] = [
+/* Carga de teste aposentada: não participa mais do MRP nem da interface.
+const legacyUploadedSequenceRows: UploadSequenceRow[] = [
   ["VE278661", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "PONTO DOS VOLANTES (CISARP ITEM 23)", "2026-07-23", "S", "S", "S", "S", "S", "S", "S", "S", "S", "N", "N/A", "N"],
   ["VE277832", "Mercedes-Benz Sprinter 417 14 m³", "LB", "CLIM", "CJ BANCOS REC - MC - LB - 4,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (ADESÃO CISAVH ITEM 8)", "2026-07-24", "S", "N", "S", "N", "N", "S", "N", "N", "N", "N", "N/A", "N"],
   ["VE278805", "Mercedes-Benz Sprinter 517 15,5 m³", "LB", "CLIM", "CJ BANCOS FIXOS - MC - LB - 4,2-1,2,3,3,2-1 - 2P - TECIDO - ELEVITTA - TRILHO", "BELISA", "SÃO ROQUE DO CANAÃ (CISARP ITEM 23)", "2026-07-24", "S", "?", "S", "S", "S", "S", "S", "S", "S", "N", "N/A", "N"],
@@ -751,6 +818,7 @@ const uploadedSequenceRows: UploadSequenceRow[] = [
   ["TMB71567", "Peugeot Boxer Furgão", "LB", "GE", "CJ BANCOS FIXOS - MC - LB - 4,3,3,3 - 2P - TECIDO - BJD (INCORPOL)", "D+ SAÚDE", "PERDIGÃO", "2026-08-20", "S", "N", "S", "N/A", "N", "N", "N", "N", "N", "N/A", "N/A", "N"],
   ["TA011315", "Peugeot Expert Furgão", "LE", "CLIM", "CJ BANCOS REC- LE - 3,3 - 3P - COURVIN PRETO/CINZA/DIAMANTE/LINHA CINZA - E/S/ J - EXECUTIVO", "OURO VANS TRANSPORTE", "SÃO PAULO", "2026-08-28", "N", "N", "N", "N/A", "N", "N", "N", "N", "N", "N", "N/A", "N"],
 ];
+*/
 
 function sequenceStages(row: UploadSequenceRow): Record<Stage, string> {
   return {
@@ -769,25 +837,27 @@ function sequenceStages(row: UploadSequenceRow): Record<Stage, string> {
   };
 }
 
-const uploadedSequenceOrders: Order[] = uploadedSequenceRows.map((row, index) => ({
-  id: 30001 + index,
-  status: "PÁTIO",
-  item: String(index + 1).padStart(2, "0"),
-  dueDate: row[7],
-  customer: row[5],
-  city: row[6],
-  model: row[1],
-  chassis: row[0],
-  line: row[2],
-  transformation: row[1],
-  bank: row[4],
-  ac: row[3],
-  acType: row[3],
-  accessory: row[17] === "N/A" ? "NÃO" : "SJ",
-  plot: row[18],
-  sequence: index + 1,
-  stages: sequenceStages(row),
-}));
+function createOrdersFromRows(rows: UploadSequenceRow[], firstId = 30001): Order[] {
+  return rows.map((row, index) => ({
+    id: firstId + index,
+    status: "PÁTIO",
+    item: String(index + 1).padStart(2, "0"),
+    dueDate: row[7],
+    customer: row[5],
+    city: row[6],
+    model: row[1],
+    chassis: row[0],
+    line: mapProductionLine(row[2]),
+    transformation: row[1],
+    bank: row[4],
+    ac: row[3],
+    acType: row[3],
+    accessory: isNoLoadStageStatus(row[17]) ? "NÃO" : "SJ",
+    plot: row[18],
+    sequence: index + 1,
+    stages: sequenceStages(row),
+  }));
+}
 
 const stageColors: Record<Stage, string> = {
   VIDROS: "#0f766e",
@@ -819,6 +889,297 @@ function normalize(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^A-Z0-9]+/g, " ")
     .trim();
+}
+
+function planningMatchKey(value: string) {
+  return normalize(value).replace(/\s+/g, "");
+}
+
+function mergePlanningOrders(localOrders: Order[], wipOrders: Order[]) {
+  const wipChassis = new Set(wipOrders.map((order) => planningMatchKey(order.chassis)).filter(Boolean));
+  const wipNumbers = new Set(wipOrders.map((order) => planningMatchKey(order.item)).filter(Boolean));
+  const localOnly = localOrders.filter((order) => {
+    if (order.source === "WIP") return false;
+    return !wipChassis.has(planningMatchKey(order.chassis)) && !wipNumbers.has(planningMatchKey(order.item));
+  });
+  return [...wipOrders, ...localOnly];
+}
+
+type SpreadsheetRecord = Record<string, string>;
+
+type SequenceImportResult = {
+  rows: UploadSequenceRow[];
+  skipped: number;
+};
+
+type DecompressionStreamConstructor = new (format: string) => TransformStream<Uint8Array, Uint8Array>;
+
+function mapProductionLine(value: string) {
+  const line = normalize(value);
+  if (line === "LAB" || (line.includes("ACESS") && line.includes("BASICA"))) return "LAB";
+  if (line === "LAE" || (line.includes("ACESS") && line.includes("EXECUTIVA"))) return "LAE";
+  if (line === "LB" || line.includes("BASICA")) return "LB";
+  if (line === "LE" || line.includes("EXECUTIVA")) return "LE";
+  return value.trim().toUpperCase() || "LB";
+}
+
+function parseSpreadsheetDate(value: string) {
+  const raw = value.trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+
+  const brazilianDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (brazilianDate) {
+    const [, day, month, year] = brazilianDate;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  const serial = Number(raw);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 90000) {
+    const date = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
+    return date.toISOString().slice(0, 10);
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? "" : toDateInput(parsed);
+}
+
+function spreadsheetValue(record: SpreadsheetRecord, aliases: string[]) {
+  for (const [header, value] of Object.entries(record)) {
+    const normalizedHeader = normalize(header);
+    if (aliases.some((alias) => normalizedHeader === alias || normalizedHeader.startsWith(`${alias} `))) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function stageStatus(record: SpreadsheetRecord, aliases: string[]) {
+  return spreadsheetValue(record, aliases) || "N/A";
+}
+
+function sequenceRowsFromSpreadsheet(records: SpreadsheetRecord[]): SequenceImportResult {
+  const rows: UploadSequenceRow[] = [];
+  let skipped = 0;
+
+  records.forEach((record) => {
+    const chassis = spreadsheetValue(record, ["CHASSI"]);
+    const dueDate = parseSpreadsheetDate(spreadsheetValue(record, ["DATA DE ENTREGA", "ENTREGA"]));
+    if (!chassis || !dueDate) {
+      skipped += 1;
+      return;
+    }
+
+    rows.push([
+      chassis,
+      spreadsheetValue(record, ["MMMV", "MODELO"]) || "Modelo não informado",
+      mapProductionLine(spreadsheetValue(record, ["LINHA"])),
+      spreadsheetValue(record, ["AR CONDICIONADO", "A C"]),
+      spreadsheetValue(record, ["CJ BCO", "CJ BANCO", "CONJUNTO DE BANCOS"]),
+      spreadsheetValue(record, ["CLIENTE"]) || "Cliente não informado",
+      spreadsheetValue(record, ["DESTINO", "CIDADE"]),
+      dueDate,
+      stageStatus(record, ["VIDROS"]),
+      stageStatus(record, ["A C"]),
+      stageStatus(record, ["PREP"]),
+      stageStatus(record, ["SERRA"]),
+      stageStatus(record, ["EXPE"]),
+      stageStatus(record, ["DESMONT"]),
+      stageStatus(record, ["ELETRICA"]),
+      stageStatus(record, ["REVEST"]),
+      stageStatus(record, ["BCO"]),
+      stageStatus(record, ["ACESSO"]),
+      stageStatus(record, ["PLOTA"]),
+      stageStatus(record, ["LIBERA"]),
+    ]);
+  });
+
+  return { rows, skipped };
+}
+
+function directChild(element: Element, localName: string) {
+  return Array.from(element.children).find((child) => child.localName === localName);
+}
+
+function xlsxColumnIndex(reference: string) {
+  const letters = reference.replace(/\d/g, "");
+  return [...letters].reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+}
+
+async function readXlsxEntries(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  let endOfCentralDirectory = -1;
+
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      endOfCentralDirectory = offset;
+      break;
+    }
+  }
+  if (endOfCentralDirectory < 0) throw new Error("O arquivo não possui uma estrutura XLSX válida.");
+
+  const entryCount = view.getUint16(endOfCentralDirectory + 10, true);
+  let centralOffset = view.getUint32(endOfCentralDirectory + 16, true);
+  const decoder = new TextDecoder("utf-8");
+  const entries = new Map<string, string>();
+  const decompression = (globalThis as typeof globalThis & {
+    DecompressionStream?: DecompressionStreamConstructor;
+  }).DecompressionStream;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(centralOffset, true) !== 0x02014b50) {
+      throw new Error("A planilha possui um índice ZIP inválido.");
+    }
+    const compression = view.getUint16(centralOffset + 10, true);
+    const compressedSize = view.getUint32(centralOffset + 20, true);
+    const nameLength = view.getUint16(centralOffset + 28, true);
+    const extraLength = view.getUint16(centralOffset + 30, true);
+    const commentLength = view.getUint16(centralOffset + 32, true);
+    const localOffset = view.getUint32(centralOffset + 42, true);
+    const name = decoder.decode(bytes.slice(centralOffset + 46, centralOffset + 46 + nameLength));
+
+    if (view.getUint32(localOffset, true) !== 0x04034b50) {
+      throw new Error("A planilha possui um arquivo interno inválido.");
+    }
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = bytes.slice(dataOffset, dataOffset + compressedSize);
+    let contents: Uint8Array;
+
+    if (compression === 0) {
+      contents = compressed;
+    } else if (compression === 8 && decompression) {
+      const stream = new Blob([compressed]).stream().pipeThrough(new decompression("deflate-raw"));
+      contents = new Uint8Array(await new Response(stream).arrayBuffer());
+    } else {
+      throw new Error("Este XLSX usa uma compactação não suportada pelo navegador.");
+    }
+
+    entries.set(name, decoder.decode(contents));
+    centralOffset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return entries;
+}
+
+function xlsxSharedStrings(xml: string | undefined) {
+  if (!xml) return [];
+  const document = new DOMParser().parseFromString(xml, "application/xml");
+  return Array.from(document.getElementsByTagName("si")).map((item) => item.textContent ?? "");
+}
+
+function xlsxRows(xml: string, sharedStrings: string[]) {
+  const document = new DOMParser().parseFromString(xml, "application/xml");
+  if (document.getElementsByTagName("parsererror").length) {
+    throw new Error("Não foi possível ler a primeira aba da planilha.");
+  }
+
+  return Array.from(document.getElementsByTagName("row")).map((row) => {
+    const values: string[] = [];
+    Array.from(row.children)
+      .filter((cell) => cell.localName === "c")
+      .forEach((cell) => {
+        const column = xlsxColumnIndex(cell.getAttribute("r") ?? "A1");
+        const type = cell.getAttribute("t");
+        const value = directChild(cell, "v")?.textContent ?? "";
+        if (type === "s") values[column] = sharedStrings[Number(value)] ?? "";
+        else if (type === "inlineStr") values[column] = directChild(cell, "is")?.textContent ?? "";
+        else values[column] = value;
+      });
+    return values;
+  });
+}
+
+async function readXlsxRecords(file: File, requiredHeader?: string): Promise<SpreadsheetRecord[]> {
+  const entries = await readXlsxEntries(await file.arrayBuffer());
+  const worksheetName = [...entries.keys()].find((name) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(name));
+  if (!worksheetName) throw new Error("Não encontrei uma aba de dados no XLSX.");
+
+  const rows = xlsxRows(entries.get(worksheetName) ?? "", xlsxSharedStrings(entries.get("xl/sharedStrings.xml")));
+  const headers = rows[0]?.map((header) => header.trim()) ?? [];
+  if (requiredHeader && !headers.some((header) => normalize(header) === normalize(requiredHeader))) {
+    throw new Error(`A primeira linha precisa ter a coluna ${requiredHeader}.`);
+  }
+
+  return rows.slice(1).map((row) =>
+    Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))
+  );
+}
+
+function numericSpreadsheetValue(value: string) {
+  const normalized = value.replace(/\./g, "").replace(",", ".");
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function scenarioStages(record: SpreadsheetRecord): Record<Stage, string> {
+  return {
+    VIDROS: stageStatus(record, ["VIDROS"]),
+    "A/C": stageStatus(record, ["A C", "AR CONDICIONADO ETAPA"]),
+    PREP: stageStatus(record, ["PREP"]),
+    "SERRA.": stageStatus(record, ["SERRA"]),
+    "EXPE.": stageStatus(record, ["EXPE"]),
+    DESMONT: stageStatus(record, ["DESMONT"]),
+    /* Legacy malformed keys retained only in source history:
+    ELÃ‰TRICA: stageStatus(record, ["ELETRICA"]),
+    REVEST: stageStatus(record, ["REVEST"]),
+    BCO: stageStatus(record, ["BCO", "BANCO"]),
+    "ACESSÃ“.": stageStatus(record, ["ACESSORIO ETAPA"]),
+    "PLOTA.": stageStatus(record, ["PLOTAGEM ETAPA"]),
+    */
+    ["EL\u00C9TRICA"]: stageStatus(record, ["ELETRICA"]),
+    REVEST: stageStatus(record, ["REVEST"]),
+    BCO: stageStatus(record, ["BCO", "BANCO"]),
+    ["ACESS\u00D3."]: stageStatus(record, ["ACESSORIO ETAPA"]),
+    "PLOTA.": stageStatus(record, ["PLOTAGEM ETAPA"]),
+    "LIBERA.": stageStatus(record, ["LIBERACAO"]),
+  };
+}
+
+function scenarioVehicleRows(records: SpreadsheetRecord[], startSequence: number): SimulationVehicle[] {
+  return records.flatMap((record, index) => {
+    const reference = spreadsheetValue(record, ["REFERENCIA", "REFERENCIA SIMULACAO", "OS", "ITEM"]) || `SIM-${index + 1}`;
+    const dueDate = parseSpreadsheetDate(spreadsheetValue(record, ["DATA ENTREGA", "DATA DE ENTREGA", "ENTREGA"]));
+    if (!dueDate) return [];
+    return [{
+      id: `${Date.now()}-${index}-${reference}`,
+      reference,
+      dueDate,
+      customer: spreadsheetValue(record, ["CLIENTE"]) || "Cliente simulado",
+      city: spreadsheetValue(record, ["DESTINO", "CIDADE"]),
+      model: spreadsheetValue(record, ["MODELO", "VEICULO"]) || "VeÃ­culo simulado",
+      chassis: spreadsheetValue(record, ["CHASSI"]),
+      line: mapProductionLine(spreadsheetValue(record, ["LINHA"])),
+      transformation: spreadsheetValue(record, ["TRANSFORMACAO"]) || "SimulaÃ§Ã£o",
+      bank: spreadsheetValue(record, ["CONJUNTO BANCOS", "CJ BCO", "BANCO"]),
+      ac: spreadsheetValue(record, ["FORNECEDOR AR", "AR CONDICIONADO"]),
+      acType: spreadsheetValue(record, ["TIPO AR", "TIPO SISTEMA AR"]),
+      accessory: spreadsheetValue(record, ["ACESSORIO"]),
+      plot: spreadsheetValue(record, ["PLOTAGEM"]),
+      sequence: Math.max(1, numericSpreadsheetValue(spreadsheetValue(record, ["SEQUENCIA"])) || startSequence + index),
+      stages: scenarioStages(record),
+    }];
+  });
+}
+
+function scenarioMaterialRows(records: SpreadsheetRecord[]): SimulationMaterial[] {
+  return records.flatMap((record, index) => {
+    const pn = spreadsheetValue(record, ["SKU", "CODIGO", "PN"]);
+    const quantity = numericSpreadsheetValue(spreadsheetValue(record, ["QUANTIDADE", "QTD"]));
+    const needDate = parseSpreadsheetDate(spreadsheetValue(record, ["DATA NECESSIDADE", "DATA", "ENTREGA"]));
+    if (!pn || quantity <= 0 || !needDate) return [];
+    return [{
+      id: `${Date.now()}-${index}-${pn}`,
+      pn,
+      description: spreadsheetValue(record, ["DESCRICAO", "MATERIAL"]) || "Material simulado",
+      unit: spreadsheetValue(record, ["UNIDADE", "UN"]) || "UN",
+      needDate,
+      quantity,
+      note: spreadsheetValue(record, ["OBSERVACAO", "NOTA"]),
+    }];
+  });
 }
 
 function isNoLoadStageStatus(value: string) {
@@ -1004,6 +1365,23 @@ function addWorkMinutes(date: Date, minutes: number, calendar: CalendarConfig) {
   return cursor;
 }
 
+function productiveSegments(start: Date, end: Date, calendar: CalendarConfig) {
+  const segments: Array<{ start: Date; end: Date }> = [];
+  let cursor = startOfDay(start);
+  const lastDay = startOfDay(end);
+
+  for (let guard = 0; cursor <= lastDay && guard < 370; guard += 1) {
+    for (const interval of workingIntervals(cursor, calendar)) {
+      const segmentStart = new Date(Math.max(start.getTime(), interval.start.getTime()));
+      const segmentEnd = new Date(Math.min(end.getTime(), interval.end.getTime()));
+      if (segmentEnd > segmentStart) segments.push({ start: segmentStart, end: segmentEnd });
+    }
+    cursor = addDays(cursor, 1);
+  }
+
+  return segments;
+}
+
 function findRule(order: Order, rules: TimeRule[]) {
   const exact = rules.find(
     (rule) =>
@@ -1177,6 +1555,8 @@ function mrpWeekSequence(start: Date, horizonDays: number) {
   return weeks;
 }
 
+/* Planejador local de exemplo aposentado: o MRP I usa app/lib/mrp-live.ts
+ * e a leitura direta do Supabase, com cenários locais opcionais.
 function activePurchaseStatus(status: string) {
   const value = normalize(status);
   return (
@@ -1310,6 +1690,7 @@ function buildMrpIPlan(
 
   return {
     weeks,
+    currentWeek,
     rows: relevantRows,
     totalDemand: relevantRows.reduce((total, row) => total + row.totalDemand, 0),
     totalIncoming: relevantRows.reduce((total, row) => total + row.totalIncoming, 0),
@@ -1319,6 +1700,7 @@ function buildMrpIPlan(
     currentWeekRequirements,
   };
 }
+*/
 
 function formatQuantity(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -1398,45 +1780,213 @@ function monthDates(year: number, month: number) {
   return dates;
 }
 
+function MrpAccess({ onAuthenticated }: { onAuthenticated: (user: MrpSessionUser) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const payload = (await response.json()) as { error?: string; user?: MrpSessionUser };
+      if (!response.ok || !payload.user) {
+        throw new Error(payload.error || "Não foi possível iniciar a sessão.");
+      }
+      setPassword("");
+      onAuthenticated(payload.user);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível iniciar a sessão.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="mrp-auth-shell">
+      <section className="mrp-auth-card" aria-labelledby="mrp-login-title">
+        <div className="mrp-auth-brand">
+          <span className="brand-mark">JI</span>
+          <div>
+            <strong>JI Montadora</strong>
+            <span>Planejamento de materiais e capacidade</span>
+          </div>
+        </div>
+        <h1 id="mrp-login-title">Acesso ao MRP</h1>
+        <p>Use o mesmo usuário e senha do ERP. Este módulo é destinado aos perfis PCP e ADMIN.</p>
+        <form className="mrp-auth-form" onSubmit={signIn}>
+          <label>
+            Usuário
+            <input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required />
+          </label>
+          <label>
+            Senha
+            <input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          </label>
+          {message ? <p className="mrp-auth-error" role="alert">{message}</p> : null}
+          <button className="button primary mrp-auth-submit" disabled={submitting} type="submit">
+            {submitting ? "Validando acesso..." : "Entrar no MRP"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 export default function Home() {
-  const [orders, setOrders] = useState<Order[]>(uploadedSequenceOrders);
+  const [user, setUser] = useState<MrpSessionUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/auth/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const payload = (await response.json()) as { user?: MrpSessionUser };
+        return payload.user ?? null;
+      })
+      .then((sessionUser) => {
+        if (active) setUser(sessionUser);
+      })
+      .finally(() => {
+        if (active) setCheckingSession(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  if (checkingSession) {
+    return <main className="mrp-auth-shell"><p className="mrp-auth-loading">Validando acesso ao MRP...</p></main>;
+  }
+  if (!user) return <MrpAccess onAuthenticated={setUser} />;
+  return <MrpWorkspace user={user} onSignOut={() => setUser(null)} />;
+}
+
+function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: () => void }) {
   const [rules, setRules] = useState<TimeRule[]>(initialRules);
   const [calendar, setCalendar] = useState<CalendarConfig>(initialCalendar);
   const [selectedStage, setSelectedStage] = useState<Stage>("REVEST");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("overview");
   const [filter, setFilter] = useState("todos");
   const [mrpSearch, setMrpSearch] = useState("");
   const [mrpSafetyFactor, setMrpSafetyFactor] = useState(0);
-
+  const [mrpPeriodicity, setMrpPeriodicity] = useState<MrpPeriodicity>("SEMANA");
+  const [mrpHorizon, setMrpHorizon] = useState(16);
+  const [mrpSnapshot, setMrpSnapshot] = useState<MrpLiveSnapshot | null>(null);
+  const [mrpLoading, setMrpLoading] = useState(true);
+  const [mrpLoadMessage, setMrpLoadMessage] = useState("Carregando dados operacionais...");
+  const [wipSnapshot, setWipSnapshot] = useState<WipSnapshot | null>(null);
+  const [wipLoading, setWipLoading] = useState(true);
+  const [wipLoadMessage, setWipLoadMessage] = useState("Carregando O.S. em WIP...");
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [activeScenarioId, setActiveScenarioId] = useState("");
+  const [scenarioStorageReady, setScenarioStorageReady] = useState(false);
+  const [scenarioName, setScenarioName] = useState("");
+  const [scenarioMessage, setScenarioMessage] = useState("");
+  const vehicleInputRef = useRef<HTMLInputElement>(null);
+  const materialInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    const saved = window.localStorage.getItem("ji-mrp-state");
+    // The former state included local test O.S. and imported spreadsheets.
+    // Clear it once; only planning preferences remain persisted locally.
+    window.localStorage.removeItem("ji-mrp-state");
+    const saved = window.localStorage.getItem("ji-mrp-settings");
     if (!saved) return;
     try {
       const parsed = JSON.parse(saved) as {
         version?: string;
-        orders?: Order[];
         rules?: TimeRule[];
         calendar?: Partial<CalendarConfig>;
       };
       if (parsed.version !== STATE_VERSION) {
-        if (parsed.rules) setRules(parsed.rules);
-        if (parsed.calendar) setCalendar(restoreCalendarConfig(parsed.calendar));
-        window.localStorage.removeItem("ji-mrp-state");
+        window.localStorage.removeItem("ji-mrp-settings");
         return;
       }
-      if (parsed.orders) setOrders(parsed.orders);
       if (parsed.rules) setRules(parsed.rules);
       if (parsed.calendar) setCalendar(restoreCalendarConfig(parsed.calendar));
     } catch {
-      window.localStorage.removeItem("ji-mrp-state");
+      window.localStorage.removeItem("ji-mrp-settings");
+    }
+  }, []);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("ji-mrp-scenarios-v1");
+    if (!saved) {
+      setScenarioStorageReady(true);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(saved) as { scenarios?: Scenario[]; activeScenarioId?: string };
+      const safeScenarios = Array.isArray(parsed.scenarios) ? parsed.scenarios : [];
+      setScenarios(safeScenarios);
+      setActiveScenarioId(safeScenarios.some((scenario) => scenario.id === parsed.activeScenarioId) ? parsed.activeScenarioId || "" : "");
+    } catch {
+      window.localStorage.removeItem("ji-mrp-scenarios-v1");
+    } finally {
+      setScenarioStorageReady(true);
     }
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem(
-      "ji-mrp-state",
-      JSON.stringify({ version: STATE_VERSION, orders, rules, calendar })
+      "ji-mrp-settings",
+      JSON.stringify({ version: STATE_VERSION, rules, calendar })
     );
-  }, [orders, rules, calendar]);
+  }, [rules, calendar]);
+
+  useEffect(() => {
+    if (!scenarioStorageReady) return;
+    window.localStorage.setItem("ji-mrp-scenarios-v1", JSON.stringify({ scenarios, activeScenarioId }));
+  }, [activeScenarioId, scenarioStorageReady, scenarios]);
+
+  const refreshMrpI = async () => {
+    setMrpLoading(true);
+    setMrpLoadMessage("Atualizando necessidade, tr\u00e2nsito e estoque...");
+    try {
+      const response = await fetch("/api/mrp-i", { cache: "no-store" });
+      const payload = (await response.json()) as MrpLiveSnapshot & { error?: string };
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "N\u00e3o foi poss\u00edvel atualizar o MRP I.");
+      }
+      setMrpSnapshot(payload);
+      setMrpLoadMessage("Dados operacionais atualizados.");
+    } catch (error) {
+      setMrpLoadMessage(error instanceof Error ? error.message : "N\u00e3o foi poss\u00edvel atualizar o MRP I.");
+    } finally {
+      setMrpLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshMrpI();
+  }, []);
+
+  const refreshWip = async () => {
+    setWipLoading(true);
+    setWipLoadMessage("Atualizando O.S. em WIP e seus apontamentos...");
+    try {
+      const response = await fetch("/api/wip", { cache: "no-store" });
+      const payload = (await response.json()) as WipSnapshot & { error?: string };
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "Não foi possível atualizar o WIP do MES.");
+      }
+      setWipSnapshot(payload);
+      setWipLoadMessage("WIP do MES atualizado.");
+    } catch (error) {
+      setWipLoadMessage(error instanceof Error ? error.message : "Não foi possível atualizar o WIP do MES.");
+    } finally {
+      setWipLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshWip();
+  }, []);
 
   const selectedMonthDates = useMemo(
     () => monthDates(calendar.calendarYear, calendar.calendarMonth),
@@ -1453,10 +2003,36 @@ export default function Home() {
   const calendarWarning = calendarValidationMessage(calendar);
   const horizonDays = planningHorizonDays(calendar);
 
+  const activeScenario = useMemo(
+    () => scenarios.find((scenario) => scenario.id === activeScenarioId) || null,
+    [activeScenarioId, scenarios]
+  );
+  const scenarioOrders = useMemo<Order[]>(() => (activeScenario?.vehicles || []).map((vehicle, index) => ({
+    id: 9_000_000 + index,
+    source: "SIMULACAO",
+    status: "SIMULAÃ‡ÃƒO",
+    item: vehicle.reference,
+    dueDate: vehicle.dueDate,
+    customer: vehicle.customer,
+    city: vehicle.city,
+    model: vehicle.model,
+    chassis: vehicle.chassis || "SEM CHASSI (SIMULAÃ‡ÃƒO)",
+    line: vehicle.line,
+    transformation: vehicle.transformation,
+    bank: vehicle.bank,
+    ac: vehicle.ac,
+    acType: vehicle.acType,
+    accessory: vehicle.accessory,
+    plot: vehicle.plot,
+    sequence: vehicle.sequence,
+    stages: vehicle.stages,
+  })), [activeScenario]);
+  const planningOrders = useMemo(() => [...(wipSnapshot?.orders || []), ...scenarioOrders], [scenarioOrders, wipSnapshot]);
+
   const filteredOrders = useMemo(() => {
-    if (filter === "todos") return orders;
-    return orders.filter((order) => normalize(order.line) === normalize(filter));
-  }, [filter, orders]);
+    if (filter === "todos") return planningOrders;
+    return planningOrders.filter((order) => normalize(order.line) === normalize(filter));
+  }, [filter, planningOrders]);
 
   const schedule = useMemo(
     () => buildSchedule(filteredOrders, rules, calendar),
@@ -1468,25 +2044,44 @@ export default function Home() {
     const mapped = new Map<string, Date>();
     filteredOrders.forEach((order) => {
       const finish = finishByOrder.get(order.id);
-      if (finish) mapped.set(normalize(order.item), finish);
+      if (finish) {
+        mapped.set(normalize(order.item), finish);
+        mapped.set(normalize(order.chassis), finish);
+      }
     });
     return mapped;
   }, [filteredOrders, finishByOrder]);
 
+  const mrpSnapshotWithScenario = useMemo(() => {
+    if (!mrpSnapshot) return null;
+    const simulatedDemands = (activeScenario?.materials || []).map((material) => ({
+      pn: material.pn,
+      description: material.description,
+      unit: material.unit,
+      quantity: material.quantity,
+      needDate: material.needDate,
+      source: "SIMULACAO" as const,
+      reference: `CenÃ¡rio ${activeScenario?.name || "local"}: ${material.note || material.id}`,
+    }));
+    return { ...mrpSnapshot, demands: [...mrpSnapshot.demands, ...simulatedDemands] };
+  }, [activeScenario, mrpSnapshot]);
   const mrpIPlan = useMemo(
-    () => buildMrpIPlan(finishByItem, calendar, mrpSafetyFactor),
-    [calendar, finishByItem, mrpSafetyFactor]
+    () => mrpSnapshotWithScenario
+      ? buildMrpLivePlan(mrpSnapshotWithScenario, { horizon: mrpHorizon, periodicity: mrpPeriodicity, safetyFactor: mrpSafetyFactor })
+      : null,
+    [mrpHorizon, mrpPeriodicity, mrpSafetyFactor, mrpSnapshotWithScenario]
   );
 
   const mrpRows = useMemo(() => {
     const search = normalize(mrpSearch);
+    const sourceRows = mrpIPlan?.rows ?? [];
     const rows = search
-      ? mrpIPlan.rows.filter(
+      ? sourceRows.filter(
           (row) => normalize(row.pn).includes(search) || normalize(row.description).includes(search)
         )
-      : mrpIPlan.rows;
+      : sourceRows;
     return rows.slice(0, 80);
-  }, [mrpIPlan.rows, mrpSearch]);
+  }, [mrpIPlan, mrpSearch]);
 
   const capacity = useMemo(() => {
     const capacityStart = getStartDate(calendar);
@@ -1628,14 +2223,6 @@ export default function Home() {
     );
   }
 
-  function updateOrder(orderId: number, field: keyof Order, value: string) {
-    setOrders((current) =>
-      current.map((order) =>
-        order.id === orderId ? { ...order, [field]: value } : order
-      )
-    );
-  }
-
   function updateOperators(stage: Stage, value: string) {
     const operators = Math.max(1, Math.floor(Number(value) || 1));
     setCalendar({
@@ -1660,30 +2247,6 @@ export default function Home() {
     ]);
   }
 
-  function addOrder() {
-    const nextId = Math.max(...orders.map((order) => order.id)) + 1;
-    setOrders((current) => [
-      {
-        ...current[0],
-        id: nextId,
-        item: String(nextId),
-        status: "PÁTIO",
-        dueDate: calendar.startDate,
-        customer: "Novo cliente",
-        chassis: `NOVO${nextId}`,
-        sequence: nextId,
-        stages: { ...current[0].stages },
-      },
-      ...current,
-    ]);
-  }
-
-  function resetData() {
-    setOrders(uploadedSequenceOrders);
-    setRules(initialRules);
-    setCalendar(initialCalendar);
-  }
-
   function toggleHoliday(date: Date) {
     const key = dayKey(date);
     const next = new Set(holidayDates);
@@ -1704,37 +2267,276 @@ export default function Home() {
     });
   }
 
+  const workspaceMeta: Record<WorkspaceView, { label: string; title: string; subtitle: string }> = {
+    overview: {
+      label: "Visão geral",
+      title: "Controle de programação",
+      subtitle: "Cenário, disponibilidade e sinais de capacidade.",
+    },
+    mrp2: {
+      label: "MRP II",
+      title: "Programação da fábrica",
+      subtitle: "Sequenciamento finito por posto, dependência e calendário.",
+    },
+    mrp1: {
+      label: "MRP I",
+      title: "Planejamento de materiais",
+      subtitle: "Necessidades, estoque, trânsito e sugestão de compra por período.",
+    },
+    scenarios: {
+      label: "Cenários",
+      title: "Simulações de demanda e capacidade",
+      subtitle: "Crie, carregue, compare e remova cenários sem alterar a operação real.",
+    },
+    settings: {
+      label: "Parâmetros",
+      title: "Carteira real e tempos padrão",
+      subtitle: "WIP do MES em leitura e regras do mix produtivo.",
+    },
+  };
+
+  function openWorkspace(view: WorkspaceView) {
+    setActiveWorkspace(view);
+    window.requestAnimationFrame(() => {
+      document.getElementById(view)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function createScenario() {
+    const name = scenarioName.trim() || `CenÃ¡rio ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date())}`;
+    const scenario: Scenario = {
+      id: `scenario-${Date.now()}`,
+      name,
+      createdAt: new Date().toISOString(),
+      vehicles: [],
+      materials: [],
+    };
+    setScenarios((current) => [scenario, ...current]);
+    setActiveScenarioId(scenario.id);
+    setScenarioName("");
+    setScenarioMessage(`CenÃ¡rio “${name}” criado. Ele estÃ¡ vazio e nÃ£o altera o Supabase.`);
+  }
+
+  function updateActiveScenario(mutator: (scenario: Scenario) => Scenario) {
+    if (!activeScenario) {
+      setScenarioMessage("Crie ou selecione um cenÃ¡rio antes de importar dados simulados.");
+      return false;
+    }
+    setScenarios((current) => current.map((scenario) => scenario.id === activeScenario.id ? mutator(scenario) : scenario));
+    return true;
+  }
+
+  function deleteActiveScenario() {
+    if (!activeScenario) return;
+    const deletedName = activeScenario.name;
+    setScenarios((current) => current.filter((scenario) => scenario.id !== activeScenario.id));
+    setActiveScenarioId("");
+    setScenarioMessage(`CenÃ¡rio “${deletedName}” excluÃ­do. Nenhum dado real foi alterado.`);
+  }
+
+  function clearActiveScenario(kind: "vehicles" | "materials") {
+    if (!activeScenario) return;
+    updateActiveScenario((scenario) => ({ ...scenario, [kind]: [] }));
+    setScenarioMessage(kind === "vehicles" ? "VeÃ­culos simulados removidos do cenÃ¡rio." : "Demandas simuladas removidas do cenÃ¡rio.");
+  }
+
+  function downloadVehicleTemplate() {
+    downloadXlsx("Template_MRP_II_Simulacao_Veiculos.xlsx", [
+      {
+        name: "VEICULOS",
+        rows: [["REFERENCIA", "DATA_ENTREGA", "CLIENTE", "DESTINO", "MODELO", "CHASSI", "LINHA", "TRANSFORMACAO", "CONJUNTO_BANCOS", "FORNECEDOR_AR", "TIPO_AR", "ACESSORIO", "PLOTAGEM", "SEQUENCIA", "VIDROS", "A_C", "PREP", "SERRA", "EXPE", "DESMONT", "ELETRICA", "REVEST", "BCO", "ACESSORIO_ETAPA", "PLOTAGEM_ETAPA", "LIBERACAO"]],
+      },
+      {
+        name: "INSTRUCOES",
+        rows: [
+          ["TEMPLATE DE SIMULACAO DE VEICULOS"],
+          ["Preencha uma linha por veÃ­culo simulado. Nenhuma linha desta planilha cria veÃ­culo, O.S., apontamento ou estoque no Supabase."],
+          ["DATA_ENTREGA", "ObrigatÃ³ria, no formato dd/mm/aaaa ou aaaa-mm-dd."],
+          ["CHASSI", "Opcional. Use uma referÃªncia quando o chassi ainda nÃ£o existir."],
+          ["ETAPAS", "Use N (pendente), P (parcial), S (concluÃ­da) ou N/A. N e P geram carga; S e N/A nÃ£o geram carga."],
+          ["SEQUENCIA", "Opcional. Se vazio, a ordem segue a sequÃªncia do arquivo."],
+        ],
+      },
+    ]);
+  }
+
+  function downloadMaterialTemplate() {
+    downloadXlsx("Template_MRP_I_Simulacao_Materiais.xlsx", [
+      {
+        name: "MATERIAIS",
+        rows: [["SKU", "DESCRICAO", "UNIDADE", "DATA_NECESSIDADE", "QUANTIDADE", "OBSERVACAO"]],
+      },
+      {
+        name: "INSTRUCOES",
+        rows: [
+          ["TEMPLATE DE SIMULACAO DE MATERIAIS"],
+          ["Preencha uma linha por necessidade adicional. A simulaÃ§Ã£o somente aparece enquanto o cenÃ¡rio estiver selecionado."],
+          ["SKU", "ObrigatÃ³rio. Deve usar o mesmo cÃ³digo do cadastro para consolidar com estoque, trÃ¢nsito e necessidade real."],
+          ["DATA_NECESSIDADE", "ObrigatÃ³ria, no formato dd/mm/aaaa ou aaaa-mm-dd."],
+          ["QUANTIDADE", "ObrigatÃ³ria e maior que zero."],
+        ],
+      },
+    ]);
+  }
+
+  async function importVehicleScenario(file?: File) {
+    if (!file || !activeScenario) return;
+    try {
+      const records = await readXlsxRecords(file, "DATA_ENTREGA");
+      const rows = scenarioVehicleRows(records, activeScenario.vehicles.length + 1);
+      if (!rows.length) throw new Error("Nenhum veÃ­culo vÃ¡lido foi encontrado. Informe ao menos DATA_ENTREGA.");
+      updateActiveScenario((scenario) => ({ ...scenario, vehicles: [...scenario.vehicles, ...rows] }));
+      setScenarioMessage(`${rows.length} veÃ­culo(s) simulado(s) incluÃ­do(s) em “${activeScenario.name}”.`);
+    } catch (error) {
+      setScenarioMessage(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel importar os veÃ­culos simulados.");
+    } finally {
+      if (vehicleInputRef.current) vehicleInputRef.current.value = "";
+    }
+  }
+
+  async function importMaterialScenario(file?: File) {
+    if (!file || !activeScenario) return;
+    try {
+      const records = await readXlsxRecords(file, "SKU");
+      const rows = scenarioMaterialRows(records);
+      if (!rows.length) throw new Error("Nenhuma necessidade vÃ¡lida foi encontrada. Informe SKU, DATA_NECESSIDADE e QUANTIDADE.");
+      updateActiveScenario((scenario) => ({ ...scenario, materials: [...scenario.materials, ...rows] }));
+      setScenarioMessage(`${rows.length} necessidade(s) de material incluÃ­da(s) em “${activeScenario.name}”.`);
+    } catch (error) {
+      setScenarioMessage(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel importar os materiais simulados.");
+    } finally {
+      if (materialInputRef.current) materialInputRef.current.value = "";
+    }
+  }
+
+  function exportMrpII() {
+    const ganttRows = [
+      ["PROCESSO", "POSTO", "O.S. / REFERENCIA", "CLIENTE", "ENTREGA", ...ganttDays.map((day) => formatDate(dayKey(day)))],
+      ...operations.map((operation) => {
+        const days = ganttDays.map((day) => {
+          const start = startOfDay(day);
+          const end = addDays(start, 1);
+          return operation.start < end && operation.end > start ? "■" : "";
+        });
+        return [operation.stage, `Posto ${operation.operator}`, operation.os, operation.customer, formatDate(operation.dueDate), ...days];
+      }),
+    ];
+    const forecastRows = [
+      ["FONTE", "ITEM / O.S.", "CHASSI", "CLIENTE", "LINHA", "TRANSFORMACAO", "DATA ENTREGA", "FIM PROJETADO", "SITUACAO", "CARGA (H)"],
+      ...filteredOrders.map((order) => {
+        const finish = finishByOrder.get(order.id);
+        const orderHours = operations.filter((operation) => operation.orderId === order.id).reduce((total, operation) => total + operation.minutes / 60, 0);
+        const late = finish ? finish > parseDate(order.dueDate) : false;
+        return [order.source === "SIMULACAO" ? `SIMULACAO: ${activeScenario?.name || ""}` : "SUPABASE / MES", order.item, order.chassis, order.customer, order.line, order.transformation, formatDate(order.dueDate), finish ? formatDateTime(finish) : "Sem carga pendente", late ? "ATRASO PROJETADO" : "NO PRAZO / SEM CARGA", Number(orderHours.toFixed(2))];
+      }),
+    ];
+    downloadXlsx("MRP_II_Previsao_Entregas.xlsx", [
+      { name: "Gantt_Capacidade", rows: ganttRows },
+      { name: "Previsao_Entregas", rows: forecastRows },
+    ]);
+  }
+
+  function exportMrpI() {
+    if (!mrpIPlan) return;
+    const periods = mrpIPlan.weeks;
+    const purchaseSummary = [
+      ["PERIODO", "SKU", "DESCRICAO", "UN", "SUGERIDO COMPRAR", "DEMANDA REAL O.S.", "FORECAST FIRME", "FORECAST PREDITIVO", "SIMULACAO", "TRANSITO"],
+      ...mrpIPlan.rows.flatMap((row) => periods.map((period, index) => {
+        const suggested = row.suggested[index] || 0;
+        const demand = row.firmByWeek[index] || 0;
+        const forecast = row.forecastFirmByWeek[index] || 0;
+        const predictive = row.forecastPredictiveByWeek[index] || 0;
+        const simulation = row.simulationByWeek[index] || 0;
+        const transit = row.incoming[index] || 0;
+        if (!suggested && !demand && !forecast && !predictive && !simulation && !transit) return [];
+        return [[period.label, row.pn, row.description, row.unit, suggested, demand, forecast, predictive, simulation, transit]];
+      }).filter((row) => row.length > 0)),
+    ];
+    const summaryRows = [
+      ["SKU", "DESCRICAO", "UN", "DISPONIVEL", "DEMANDA REAL O.S.", "FORECAST FIRME", "FORECAST PREDITIVO", "SIMULACAO", "TRANSITO", "SUGERIDO COMPRAR", "PRIMEIRO PERIODO"],
+      ...mrpIPlan.rows.map((row) => [row.pn, row.description, row.unit, row.available, row.firmDemand, row.forecastFirmDemand, row.forecastPredictiveDemand, row.simulationDemand, row.totalIncoming, row.totalSuggested, row.firstSuggestedWeek || "—"]),
+    ];
+    downloadXlsx(`MRP_I_Resumo_Compras_${mrpPeriodicity.toLowerCase()}.xlsx`, [
+      { name: "Resumo_Compras", rows: summaryRows },
+      { name: `${mrpPeriodicity}_Compras`, rows: purchaseSummary },
+    ]);
+  }
+
+  async function signOut() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      onSignOut();
+    }
+  }
+
   return (
-    <main className="min-h-screen bg-[#f6f7f4] text-[#1d241f]">
-      <section className="border-b border-[#d9ddcf] bg-[#fbfcf8]">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="app-shell">
+      <aside className="app-sidebar" aria-label="Navegação principal">
+        <div className="brand-lockup">
+          <span className="brand-mark">JI</span>
           <div>
-            <p className="text-sm font-medium uppercase tracking-[0.14em] text-[#647067]">
-              JI Montadora · PCP
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-normal text-[#17201a] md:text-4xl">
-              Módulo MRP II
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm text-[#5d685f] md:text-base">
-              Sequenciamento por data de entrega, mix de linha, transformação,
-              conjunto de bancos, tipo de A/C, calendário produtivo e tempos por etapa.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="tool-button" type="button" onClick={addOrder}>
-              + Pedido
-            </button>
-            <button className="tool-button" type="button" onClick={addRule}>
-              + Regra
-            </button>
-            <button className="tool-button secondary" type="button" onClick={resetData}>
-              Restaurar base
-            </button>
+            <strong>JI Montadora</strong>
+            <span>PCP · planejamento integrado</span>
           </div>
         </div>
-      </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-5 py-5 lg:grid-cols-[1.05fr_1.95fr]">
+        <nav className="workspace-nav" aria-label="Módulos do MRP">
+          <span className="nav-label">Área de trabalho</span>
+          {(
+            [
+              ["overview", "Visão geral", "Cenário e capacidade"],
+              ["mrp2", "MRP II", "Programação da fábrica"],
+              ["mrp1", "MRP I", "Materiais e compras"],
+              ["scenarios", "Cenários", "Simulações e templates"],
+              ["settings", "Parâmetros", "WIP real e tempos"],
+            ] as Array<[WorkspaceView, string, string]>
+          ).map(([view, label, detail]) => (
+            <button
+              className={activeWorkspace === view ? "nav-item active" : "nav-item"}
+              key={view}
+              type="button"
+              onClick={() => openWorkspace(view)}
+            >
+              <b>{label}</b>
+              <span>{detail}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-status">
+          <span>Conectado como</span>
+          <strong>{user.username}</strong>
+          <small>{user.roles.join(" · ")}</small>
+          <button className="sidebar-signout" type="button" onClick={() => void signOut()}>Sair</button>
+          <hr />
+          <span>Cenário ativo</span>
+          <strong>{activeScenario ? activeScenario.name : "Somente operação real"}</strong>
+          <small>{horizonDays} dias · {wipSnapshot?.counts.total || 0} O.S. reais no WIP</small>
+        </div>
+      </aside>
+
+      <div className="app-workspace">
+        <header className="app-topbar">
+          <div className="topbar-title">
+            <span>PCP / {workspaceMeta[activeWorkspace].label}</span>
+            <h1>{workspaceMeta[activeWorkspace].title}</h1>
+            <p>{workspaceMeta[activeWorkspace].subtitle}</p>
+            <small className="topbar-source">
+              Carteira operacional: Supabase · WIP MES: {wipSnapshot?.counts.total || 0} O.S.
+              {activeScenario ? ` · Cenário: ${activeScenario.name}` : ""}
+            </small>
+          </div>
+          <div className="topbar-actions">
+            <button className="tool-button secondary" disabled={wipLoading} type="button" onClick={refreshWip}>
+              {wipLoading ? "Atualizando WIP..." : "Atualizar WIP"}
+            </button>
+          </div>
+        </header>
+
+        <div className="app-content">
+
+      <section id="overview" hidden={activeWorkspace !== "overview"} className="workspace-section scenario-section mx-auto grid max-w-7xl gap-4 px-5 py-5 lg:grid-cols-[1.05fr_1.95fr]">
         <div className="panel">
           <h2>Calendário e cenário</h2>
           <div className="form-grid">
@@ -1981,13 +2783,101 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-[1600px] gap-4 px-5 pb-5">
+      <section id="scenarios" hidden={activeWorkspace !== "scenarios"} className="workspace-section mx-auto grid max-w-[1200px] gap-4 px-5 py-5">
+        <div className="panel wide">
+          <div className="section-head">
+            <div>
+              <h2>Cenários de simulação</h2>
+              <span>Dados locais e descartáveis. A carteira real, estoque, trânsito e O.S. continuam em leitura direta do Supabase.</span>
+            </div>
+          </div>
+          <div className="scenario-toolbar">
+            <label>
+              Nome do novo cenário
+              <input value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} placeholder="Ex.: Projeção Setembro / Licitação X" />
+            </label>
+            <button className="button primary" type="button" onClick={createScenario}>+ Criar cenário</button>
+            <label>
+              Cenário aplicado no MRP
+              <select value={activeScenarioId} onChange={(event) => setActiveScenarioId(event.target.value)}>
+                <option value="">Somente operação real (Supabase)</option>
+                {scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name}</option>)}
+              </select>
+            </label>
+            <button className="button danger" disabled={!activeScenario} type="button" onClick={deleteActiveScenario}>Excluir cenário</button>
+          </div>
+          {scenarioMessage ? <p className="mrp-data-state">{scenarioMessage}</p> : null}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <h2>Simular entrada de veículos</h2>
+                <span>Acrescenta carros hipotéticos ao MRP II para enxergar carga, capacidade e previsão de entrega.</span>
+              </div>
+            </div>
+            <ol className="scenario-steps">
+              <li>Baixe o template de veículos.</li>
+              <li>Informe uma referência, data de entrega e as etapas previstas.</li>
+              <li>Selecione um cenário e importe o arquivo.</li>
+            </ol>
+            <div className="button-row">
+              <button className="button secondary" type="button" onClick={downloadVehicleTemplate}>Baixar template de veículos</button>
+              <input ref={vehicleInputRef} accept=".xlsx" hidden type="file" onChange={(event) => void importVehicleScenario(event.target.files?.[0])} />
+              <button className="button primary" disabled={!activeScenario} type="button" onClick={() => vehicleInputRef.current?.click()}>Importar veículos</button>
+              <button className="button danger-outline" disabled={!activeScenario?.vehicles.length} type="button" onClick={() => clearActiveScenario("vehicles")}>Limpar veículos</button>
+            </div>
+            <p className="scenario-count"><strong>{activeScenario?.vehicles.length || 0}</strong> veículo(s) simulados no cenário selecionado.</p>
+          </article>
+
+          <article className="panel">
+            <div className="section-head">
+              <div>
+                <h2>Simular demanda de materiais</h2>
+                <span>Acrescenta necessidades locais ao MRP I, separadas de O.S., Forecast real, estoque e trânsito.</span>
+              </div>
+            </div>
+            <ol className="scenario-steps">
+              <li>Baixe o template de materiais.</li>
+              <li>Use o SKU real, data de necessidade e quantidade.</li>
+              <li>Importe dentro do cenário selecionado.</li>
+            </ol>
+            <div className="button-row">
+              <button className="button secondary" type="button" onClick={downloadMaterialTemplate}>Baixar template de materiais</button>
+              <input ref={materialInputRef} accept=".xlsx" hidden type="file" onChange={(event) => void importMaterialScenario(event.target.files?.[0])} />
+              <button className="button primary" disabled={!activeScenario} type="button" onClick={() => materialInputRef.current?.click()}>Importar materiais</button>
+              <button className="button danger-outline" disabled={!activeScenario?.materials.length} type="button" onClick={() => clearActiveScenario("materials")}>Limpar materiais</button>
+            </div>
+            <p className="scenario-count"><strong>{activeScenario?.materials.length || 0}</strong> necessidade(s) simulada(s) no cenário selecionado.</p>
+          </article>
+        </div>
+
+        <div className="panel wide">
+          <div className="section-head">
+            <h2>Regras de segurança</h2>
+            <span>O cenário não emite O.C., não reserva material, não cria O.S. e não movimenta estoque.</span>
+          </div>
+          <div className="mrp-source-strip">
+            <span>Base padrão: Supabase</span>
+            <span>Simulação: somente quando selecionada</span>
+            <span>Exclusão: remove apenas dados locais do cenário</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="mrp1" hidden={activeWorkspace !== "mrp1"} className="workspace-section mrp-material-section mx-auto grid w-full max-w-[1600px] gap-4 px-5 pb-5">
         <div className="panel wide mrp-panel">
           <div className="section-head mrp-head">
             <div>
-              <h2>MRP I - materiais</h2>
+              <h2>MRP I | Necessidade líquida de materiais</h2>
               <span>
-                {mrpIPlan.weeks.length} semanas no horizonte | base 22.07.26 - Planejamento Mestre
+                {mrpSnapshot
+                  ? `${mrpIPlan?.weeks.length ?? 0} semanas | atualizado ${new Intl.DateTimeFormat("pt-BR", {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    }).format(new Date(mrpSnapshot.generatedAt))}`
+                  : "Aguardando a leitura do Supabase"}
               </span>
             </div>
             <div className="mrp-controls">
@@ -2001,7 +2891,7 @@ export default function Home() {
                 />
               </label>
               <label>
-                Seguranca
+                Reserva de segurança
                 <input
                   min="0"
                   max="3"
@@ -2013,34 +2903,74 @@ export default function Home() {
                   }
                 />
               </label>
+              <label>
+                Visão
+                <select value={mrpPeriodicity} onChange={(event) => {
+                  const periodicity = event.target.value as MrpPeriodicity;
+                  setMrpPeriodicity(periodicity);
+                  setMrpHorizon(periodicity === "DIA" ? 31 : periodicity === "MES" ? 6 : 16);
+                }}>
+                  <option value="DIA">Dias</option>
+                  <option value="SEMANA">Semanas</option>
+                  <option value="MES">Meses</option>
+                </select>
+              </label>
+              <label>
+                Horizonte
+                <input min={mrpPeriodicity === "DIA" ? 7 : mrpPeriodicity === "MES" ? 3 : 4} max={mrpPeriodicity === "DIA" ? 120 : mrpPeriodicity === "MES" ? 24 : 26} type="number" value={mrpHorizon} onChange={(event) => setMrpHorizon(Math.max(1, Math.floor(Number(event.target.value) || 1)))} />
+              </label>
+              <button className="button secondary" type="button" onClick={refreshMrpI} disabled={mrpLoading}>
+                {mrpLoading ? "Atualizando..." : "Atualizar dados"}
+              </button>
+              <button className="button primary" type="button" disabled={!mrpIPlan} onClick={exportMrpI}>Exportar compras</button>
             </div>
           </div>
 
           <div className="mrp-kpis">
             <div>
-              <span>Demanda</span>
-              <strong>{formatQuantity(mrpIPlan.totalDemand)}</strong>
+              <span>Necessidade O.S.</span>
+              <strong>{formatQuantity(mrpIPlan?.totalFirmDemand ?? 0)}</strong>
             </div>
             <div>
-              <span>Compras abertas</span>
-              <strong>{formatQuantity(mrpIPlan.totalIncoming)}</strong>
+              <span>Forecast firme</span>
+              <strong>{formatQuantity(mrpIPlan?.totalForecastFirmDemand ?? 0)}</strong>
             </div>
             <div>
-              <span>Sugestao compra</span>
-              <strong>{formatQuantity(mrpIPlan.totalSuggested)}</strong>
+              <span>Forecast preditivo</span>
+              <strong>{formatQuantity(mrpIPlan?.totalForecastPredictiveDemand ?? 0)}</strong>
             </div>
             <div>
-              <span>Itens em ruptura</span>
-              <strong>{mrpIPlan.shortageItems}</strong>
+              <span>Simulação local</span>
+              <strong>{formatQuantity(mrpIPlan?.totalSimulationDemand ?? 0)}</strong>
+            </div>
+            <div>
+              <span>Compras em trânsito</span>
+              <strong>{formatQuantity(mrpIPlan?.totalIncoming ?? 0)}</strong>
+            </div>
+            <div>
+              <span>Sugestão de compra</span>
+              <strong>{formatQuantity(mrpIPlan?.totalSuggested ?? 0)}</strong>
+            </div>
+            <div>
+              <span>Itens com déficit</span>
+              <strong>{mrpIPlan?.shortageItems ?? 0}</strong>
             </div>
           </div>
 
           <div className="mrp-source-strip">
-            <span>Necessidades com O.S: {mrpIPlan.linkedRequirements}</span>
-            <span>Semana atual: {mrpIPlan.currentWeekRequirements}</span>
-            <span>Lead times: {mrpISeed.leadTimes.length}</span>
-            <span>Estoque: {mrpISeed.inventory.length}</span>
+            <span>O.S. abertas: {mrpSnapshot?.counts.activeWorkOrders ?? 0}</span>
+            <span>Linhas líquidas de O.S.: {mrpSnapshot?.counts.firmDemandLines ?? 0}</span>
+            <span>Linhas de trânsito: {mrpSnapshot?.counts.transitLines ?? 0}</span>
+            <span>Forecast firme: {mrpSnapshot?.counts.forecastFirmLines ?? 0}</span>
+            <span>Forecast preditivo: {mrpSnapshot?.counts.forecastPredictiveLines ?? 0}</span>
+            <span>Simulação local: {activeScenario?.materials.length || 0} linha(s)</span>
+            <span>Leitura somente: não cria compra, reserva ou movimento</span>
           </div>
+
+          {mrpSnapshot?.warnings.map((warning) => (
+            <p className="mrp-warning" key={warning}>{warning}</p>
+          ))}
+          {!mrpSnapshot ? <p className="mrp-data-state">{mrpLoadMessage}</p> : null}
 
           <div className="table-wrap mrp-table-wrap">
             <table className="mrp-table">
@@ -2048,11 +2978,13 @@ export default function Home() {
                 <tr>
                   <th>PN</th>
                   <th>Material</th>
+                  <th>UN</th>
                   <th>Disp.</th>
-                  <th>LT</th>
-                  <th>Demanda</th>
-                  <th>Transito</th>
-                  <th>Sugestao</th>
+                  <th>O.S. firme</th>
+                  <th>Forecast firme</th>
+                  <th>Forecast preditivo</th>
+                  <th>Simulação</th>
+                  <th>Trânsito</th>
                   <th>Comprar</th>
                   <th>Semanas</th>
                 </tr>
@@ -2065,33 +2997,40 @@ export default function Home() {
                     </td>
                     <td>
                       {row.description}
-                      <small>Estoque seguranca: {formatQuantity(row.safetyStock)}</small>
+                      <small>Necessidade líquida, já coberta por empenhos e baixas vinculados</small>
                     </td>
+                    <td>{row.unit}</td>
                     <td>{formatQuantity(row.available)}</td>
-                    <td>{row.leadWeeks} sem</td>
-                    <td>{formatQuantity(row.totalDemand)}</td>
+                    <td>{formatQuantity(row.firmDemand)}</td>
+                    <td>{formatQuantity(row.forecastFirmDemand)}</td>
+                    <td>{formatQuantity(row.forecastPredictiveDemand)}</td>
+                    <td>{formatQuantity(row.simulationDemand)}</td>
                     <td>{formatQuantity(row.totalIncoming)}</td>
                     <td className={row.totalSuggested > 0 ? "need-cell" : ""}>
                       {formatQuantity(row.totalSuggested)}
+                      <small>{row.firstSuggestedWeek ? `déficit ${row.firstSuggestedWeek}` : "sem déficit"}</small>
                     </td>
-                    <td>{row.firstSuggestedWeek ? `S${row.firstSuggestedWeek}` : "-"}</td>
                     <td>
                       <div className="mrp-week-strip">
-                        {mrpIPlan.weeks.map((week, index) => (
+                        {(mrpIPlan?.weeks ?? []).map((week, index) => (
                           <span
                             className={[
                               "mrp-week-chip",
                               row.projected[index] < 0 ? "negative" : "",
                               row.suggested[index] > 0 ? "buy" : "",
                             ].join(" ")}
-                            key={`${row.pn}-${week}`}
-                            title={`S${week} | demanda ${formatQuantity(
-                              row.demand[index]
-                            )} | entrada ${formatQuantity(row.incoming[index])} | estoque ${formatQuantity(
+                            key={`${row.pn}-${week.key}`}
+                            title={`${week.label} | O.S. ${formatQuantity(
+                              row.firmByWeek[index]
+                            )} | Forecast firme ${formatQuantity(row.forecastFirmByWeek[index])} | Forecast preditivo ${formatQuantity(
+                              row.forecastPredictiveByWeek[index]
+                            )} | Simulação ${formatQuantity(
+                              row.simulationByWeek[index]
+                            )} | trânsito ${formatQuantity(row.incoming[index])} | saldo ${formatQuantity(
                               row.projected[index]
                             )} | comprar ${formatQuantity(row.suggested[index])}`}
                           >
-                            <b>S{week}</b>
+                            <b>{week.label}</b>
                             <em>{formatQuantity(row.projected[index])}</em>
                             {row.suggested[index] > 0 ? (
                               <small>+{formatQuantity(row.suggested[index])}</small>
@@ -2108,23 +3047,41 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-[1600px] gap-4 px-5 pb-5">
+      <section id="mrp2" hidden={activeWorkspace !== "mrp2"} className="workspace-section mx-auto grid max-w-[1600px] gap-4 px-5 pb-5">
         <div className="panel wide cm25-panel">
           <div className="section-head cm25-head">
             <div>
-              <h2>Gantt de capacidade</h2>
+              <h2>MRP II | Programação e capacidade</h2>
               <span>
                 {formatDateTime(ganttBounds.start)} até {formatDateTime(ganttBounds.end)}
               </span>
             </div>
             <div className="cm25-legend" aria-label="Legenda do Gantt">
               <b>CM25</b>
-              <span>Barra = pedido + processo</span>
+              <span>Barra = trecho produtivo</span>
               <span className="legend-off">Sem produção</span>
               <span className="legend-lunch">Almoço</span>
               <span className="legend-late">Atraso</span>
             </div>
           </div>
+
+          <div className="mrp-source-strip" aria-live="polite">
+            <strong>WIP do MES</strong>
+            <span>{wipSnapshot?.counts.total || 0} O.S. em processo</span>
+            <span>{wipSnapshot?.counts.patio || 0} em pátio</span>
+            <span>{wipSnapshot?.counts.production || 0} em produção</span>
+            <span>{activeScenario ? `${activeScenario.vehicles.length} veículo(s) do cenário` : "sem veículos simulados"}</span>
+            <span>Sequência persistida do MES preservada</span>
+            <span>S e N/A não geram carga; P considera apenas a carga restante.</span>
+            <button className="button secondary" disabled={wipLoading} type="button" onClick={refreshWip}>
+              {wipLoading ? "Atualizando..." : "Atualizar WIP"}
+            </button>
+            <button className="button primary" type="button" onClick={exportMrpII}>Exportar previsão de entregas</button>
+          </div>
+          {!wipSnapshot ? <div className="mrp-data-state">{wipLoadMessage}</div> : null}
+          {wipSnapshot?.warnings.length ? (
+            <div className="mrp-data-state">{wipSnapshot.warnings.join(" · ")}</div>
+          ) : null}
 
           <div className="cm25-scroll" role="region" aria-label="Gantt com datas e processos">
             <div
@@ -2255,38 +3212,56 @@ export default function Home() {
                           />
                         );
                       })}
-                      {laneOps.map((operation) => {
-                        const left =
-                          ((operation.start.getTime() - ganttScale.start.getTime()) /
-                            ganttScale.span) *
-                          ganttScale.width;
-                        const width =
-                          ((operation.end.getTime() - operation.start.getTime()) /
-                            ganttScale.span) *
-                          ganttScale.width;
-                        const late = operation.end > parseDate(operation.dueDate);
-                        return (
-                          <button
-                            className={late ? "cm25-op late" : "cm25-op"}
-                            key={operation.id}
-                            type="button"
-                            onClick={() => setSelectedStage(lane.stage)}
-                            style={{
-                              left: `${Math.max(0, left)}px`,
-                              width: `${Math.max(112, width)}px`,
-                              backgroundColor: stageColors[lane.stage],
-                            }}
-                            title={`${operation.stage} · O.S ${operation.os} · Pedido ${operation.item} · ${
-                              operation.customer
-                            } · ${formatDateTime(operation.start)} até ${formatDateTime(
-                              operation.end
-                            )} · tempo produtivo ${formatDuration(operation.minutes)} · entrega ${formatDate(operation.dueDate)}`}
-                          >
-                            <strong>{operation.os}</strong>
-                            <span>#{operation.item} · OP{operation.operator} · prod. {formatDuration(operation.minutes)}</span>
-                          </button>
-                        );
-                      })}
+                      {laneOps
+                        .flatMap((operation) =>
+                          productiveSegments(operation.start, operation.end, calendar).map((segment, index) => ({
+                            operation,
+                            segment,
+                            primary: index === 0,
+                          }))
+                        )
+                        .map(({ operation, segment, primary }) => {
+                          const left =
+                            ((segment.start.getTime() - ganttScale.start.getTime()) /
+                              ganttScale.span) *
+                            ganttScale.width;
+                          const width =
+                            ((segment.end.getTime() - segment.start.getTime()) /
+                              ganttScale.span) *
+                            ganttScale.width;
+                          const late = operation.end > parseDate(operation.dueDate);
+                          const showLabel = primary && width >= 68;
+                          return (
+                            <button
+                              className={[
+                                "cm25-op",
+                                "segmented",
+                                width < 68 ? "compact" : "",
+                                late ? "late" : "",
+                              ].filter(Boolean).join(" ")}
+                              key={`${operation.id}-${segment.start.toISOString()}`}
+                              type="button"
+                              onClick={() => setSelectedStage(lane.stage)}
+                              style={{
+                                left: `${Math.max(0, left)}px`,
+                                width: `${Math.max(3, width)}px`,
+                                backgroundColor: stageColors[lane.stage],
+                              }}
+                              title={`${operation.stage} | O.S. ${operation.os} | Pedido ${operation.item} | ${
+                                operation.customer
+                              } | trecho produtivo ${formatDateTime(segment.start)} até ${formatDateTime(
+                                segment.end
+                              )} | total produtivo ${formatDuration(operation.minutes)} | entrega ${formatDate(operation.dueDate)}`}
+                            >
+                              {showLabel ? (
+                                <>
+                                  <strong>{operation.os}</strong>
+                                  <span>#{operation.item} · OP{operation.operator} · prod. {formatDuration(operation.minutes)}</span>
+                                </>
+                              ) : null}
+                            </button>
+                          );
+                        })}
                     </div>
                   </div>
                 );
@@ -2352,7 +3327,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="legacy-gantt-section mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.45fr_1fr]">
+      <section hidden={activeWorkspace !== "mrp2"} className="legacy-gantt-section mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.45fr_1fr]">
         <div className="panel wide">
           <div className="section-head">
             <h2>Gantt por etapa</h2>
@@ -2432,17 +3407,18 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.35fr_1.05fr]">
+      <section id="settings" hidden={activeWorkspace !== "settings"} className="workspace-section mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.35fr_1.05fr]">
         <div className="panel wide">
           <div className="section-head">
-            <h2>Pedidos sequenciados</h2>
-            <span>Sequência importada do modelo_upload (19).xlsx</span>
+            <h2>Carteira de O.S.</h2>
+            <span>Supabase / MES {activeScenario ? `+ cenário ${activeScenario.name}` : ""}</span>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Item</th>
+                  <th>Fonte</th>
                   <th>Cliente</th>
                   <th>Linha</th>
                   <th>Entrega</th>
@@ -2461,30 +3437,15 @@ export default function Home() {
                         <small>{order.chassis}</small>
                       </td>
                       <td>
+                        <span className="status">{order.source === "SIMULACAO" ? "SIMULAÇÃO" : "WIP · MES"}</span>
+                        <small>{order.status}</small>
+                      </td>
+                      <td>
                         {order.customer}
                         <small>{order.model}</small>
                       </td>
-                      <td>
-                        <select
-                          value={order.line}
-                          onChange={(event) =>
-                            updateOrder(order.id, "line", event.target.value)
-                          }
-                        >
-                          {["LB", "LE", "LAB", "LAE", "-"].map((line) => (
-                            <option key={line}>{line}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          type="date"
-                          value={order.dueDate}
-                          onChange={(event) =>
-                            updateOrder(order.id, "dueDate", event.target.value)
-                          }
-                        />
-                      </td>
+                      <td>{order.line || "—"}</td>
+                      <td>{order.dueDate ? formatDate(order.dueDate) : "—"}</td>
                       <td className={late ? "late-text" : ""}>
                         {finish ? formatDateTime(finish) : "Sem pendência"}
                       </td>
@@ -2501,7 +3462,7 @@ export default function Home() {
 
         <div className="panel">
           <div className="section-head">
-            <h2>Tempos por mix</h2>
+            <h2>Tempos padrão por mix</h2>
             <span>{selectedStage}</span>
           </div>
           <div className="rule-list">
@@ -2544,6 +3505,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+        </div>
+      </div>
     </main>
   );
 }
