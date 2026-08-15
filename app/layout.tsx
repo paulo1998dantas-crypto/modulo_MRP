@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { PortalBackLink } from "./PortalBackLink";
 
 export const metadata: Metadata = {
   title: "Módulo MRP II | JI Montadora",
@@ -17,7 +18,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <PortalBackLink />
+        {children}
+      </body>
     </html>
   );
 }
