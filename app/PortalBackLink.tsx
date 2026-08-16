@@ -1,4 +1,4 @@
-const PORTAL_URL = "https://ji-portal-operacional.onrender.com/#modulos";
+const PORTAL_URL = "https://ji-portal-operacional.onrender.com/";
 
 export function PortalBackLink() {
   return (
