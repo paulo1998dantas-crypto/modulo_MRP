@@ -132,10 +132,11 @@ export async function GET() {
         { status: 401, headers: { "Cache-Control": "no-store" } },
       );
     }
-    const [skus, balances, bom, orders, documents, movements, purchaseOrders, purchaseLines, forecasts, forecastNeeds] = await Promise.all([
+    const [skus, balances, bom, cadastroBom, orders, documents, movements, purchaseOrders, purchaseLines, forecasts, forecastNeeds] = await Promise.all([
       readRows("skus", "id,sku,descricao,unidade,grupo,active"),
       readRows("stock_balances", "sku_id,saldo_atual"),
       readRows("bom_components", "item_sku_id,component_sku_id,quantidade"),
+      readRows("cadastro_bom_componentes", "parent_sku,component_sku,quantidade"),
       readRows("erp_work_orders", "id,numero_os,status,technical_status,data_entrega,data_comercial_prevista"),
       readRows("suprimentos_documentos", "id,tipo,numero,erp_work_order_id,composicao,updated_at"),
       readRows("movements", "id,sku_id,tipo,quantidade,related_movement_id,work_order_id,movement_status"),
@@ -165,6 +166,27 @@ export async function GET() {
       const values = bomByParent.get(parentCode) ?? [];
       values.push({ code: childCode, quantity });
       bomByParent.set(parentCode, values);
+    });
+
+    // Cadastro is the source used when a B.O.M. was associated after the SKU
+    // already existed.  The normal inventory B.O.M. remains authoritative when
+    // it is present; this fallback is keyed only by the SKU code and therefore
+    // does not depend on a manually maintained flag or a browser cache.
+    const cadastroBomByParent = new Map<string, Array<{ code: string; quantity: number }>>();
+    cadastroBom.forEach((component) => {
+      const parentCode = codeKey(component.parent_sku);
+      const childCode = codeKey(component.component_sku);
+      const quantity = numberOf(component.quantidade);
+      if (!parentCode || !childCode || quantity <= 0 || !skuByCode.has(parentCode)) return;
+      const values = cadastroBomByParent.get(parentCode) ?? [];
+      values.push({ code: childCode, quantity });
+      cadastroBomByParent.set(parentCode, values);
+    });
+    let cadastroBomFallbackParents = 0;
+    cadastroBomByParent.forEach((components, parentCode) => {
+      if (bomByParent.has(parentCode)) return;
+      bomByParent.set(parentCode, components);
+      cadastroBomFallbackParents += 1;
     });
 
     const balanceBySku = new Map<number, number>();
@@ -330,6 +352,9 @@ export async function GET() {
         ? `${activeOrders.length - selectedDocuments.size} O.S. ativa(s) sem documento de composição não entrou(aram) na necessidade.`
         : "",
       skippedNoSku ? `${skippedNoSku} linha(s) sem SKU válido foi(ram) ignorada(s).` : "",
+      cadastroBomFallbackParents
+        ? `${cadastroBomFallbackParents} B.O.M.(s) do Cadastro foi(ram) vinculada(s) automaticamente pelo SKU.`
+        : "",
     ].filter(Boolean);
 
     const snapshot: MrpLiveSnapshot = {

@@ -232,7 +232,9 @@ const stageDependencies: Record<Stage, Stage[]> = {
   ],
 };
 
-const STATE_VERSION = "supabase-only-2026-08-06";
+const STATE_VERSION = "supabase-only-2026-08-15";
+const GANTT_DAY_WIDTH = 210;
+const GANTT_MIN_WIDTH = 1180;
 
 const initialOperators: Record<Stage, number> = {
   VIDROS: 1,
@@ -250,22 +252,22 @@ const initialOperators: Record<Stage, number> = {
 };
 
 const initialCalendar: CalendarConfig = {
-  startDate: "2026-07-22",
-  dayStart: "07:30",
-  dayEnd: "17:18",
+  startDate: toDateInput(new Date()),
+  dayStart: "08:00",
+  dayEnd: "18:00",
   lunchStart: "12:00",
   lunchEnd: "13:00",
-  horizonDays: 10,
+  horizonDays: 30,
   workingDays: [1, 2, 3, 4, 5],
-  holidays: "2026-07-25",
-  calendarYear: 2026,
-  calendarMonth: 6,
+  holidays: "",
+  calendarYear: new Date().getFullYear(),
+  calendarMonth: new Date().getMonth(),
   operators: initialOperators,
   completeFlow: false,
 };
 
 function planningHorizonDays(calendar: CalendarConfig) {
-  return Math.max(1, Math.min(365, Math.floor(Number(calendar.horizonDays) || 10)));
+  return Math.max(1, Math.min(365, Math.floor(Number(calendar.horizonDays) || 30)));
 }
 
 function operatorCountForStage(calendar: CalendarConfig, stage: Stage) {
@@ -282,7 +284,22 @@ function restoreCalendarConfig(calendar: Partial<CalendarConfig>) {
       ...(calendar.operators ?? {}),
     },
   };
-  return { ...merged, horizonDays: planningHorizonDays(merged) };
+  return operationalCalendar(merged);
+}
+
+function operationalCalendar(calendar: CalendarConfig = initialCalendar): CalendarConfig {
+  const today = new Date();
+  return {
+    ...calendar,
+    startDate: toDateInput(today),
+    dayStart: "08:00",
+    dayEnd: "18:00",
+    lunchStart: "12:00",
+    lunchEnd: "13:00",
+    horizonDays: 30,
+    calendarYear: today.getFullYear(),
+    calendarMonth: today.getMonth(),
+  };
 }
 
 const defaultMinutes: Record<Stage, number> = {
@@ -879,7 +896,7 @@ function parseDate(date: string) {
 }
 
 function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function normalize(value: string) {
@@ -1738,13 +1755,19 @@ function formatHour(date: Date) {
 }
 
 function calendarTimeMarks(calendar: CalendarConfig) {
-  const marks = [
-    calendar.dayStart,
-    calendar.lunchStart,
-    calendar.lunchEnd,
-    calendar.dayEnd,
-  ].filter(hasTimeValue);
-  return [...new Set(marks)].sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
+  const start = timeToMinutes(calendar.dayStart);
+  const end = timeToMinutes(calendar.dayEnd);
+  const marks = new Set([calendar.dayStart, calendar.lunchStart, calendar.lunchEnd, calendar.dayEnd]);
+  const firstEvenHour = Math.ceil(start / 120) * 120;
+
+  for (let minute = firstEvenHour; minute < end; minute += 120) {
+    marks.add(`${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`);
+  }
+
+  return [...marks]
+    .filter(hasTimeValue)
+    .filter((value) => timeToMinutes(value) >= start && timeToMinutes(value) <= end)
+    .sort((a, b) => timeToMinutes(a) - timeToMinutes(b));
 }
 
 function formatDuration(minutes: number) {
@@ -1870,14 +1893,14 @@ export default function Home() {
 
 function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: () => void }) {
   const [rules, setRules] = useState<TimeRule[]>(initialRules);
-  const [calendar, setCalendar] = useState<CalendarConfig>(initialCalendar);
+  const [calendar, setCalendar] = useState<CalendarConfig>(() => operationalCalendar());
   const [selectedStage, setSelectedStage] = useState<Stage>("REVEST");
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("overview");
   const [filter, setFilter] = useState("todos");
   const [mrpSearch, setMrpSearch] = useState("");
   const [mrpSafetyFactor, setMrpSafetyFactor] = useState(0);
-  const [mrpPeriodicity, setMrpPeriodicity] = useState<MrpPeriodicity>("SEMANA");
-  const [mrpHorizon, setMrpHorizon] = useState(16);
+  const [mrpPeriodicity, setMrpPeriodicity] = useState<MrpPeriodicity>("DIA");
+  const [mrpHorizonDays, setMrpHorizonDays] = useState(30);
   const [mrpSnapshot, setMrpSnapshot] = useState<MrpLiveSnapshot | null>(null);
   const [mrpLoading, setMrpLoading] = useState(true);
   const [mrpLoadMessage, setMrpLoadMessage] = useState("Carregando dados operacionais...");
@@ -1945,6 +1968,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   }, [activeScenarioId, scenarioStorageReady, scenarios]);
 
   const refreshMrpI = async () => {
+    setCalendar((current) => ({ ...current, startDate: toDateInput(new Date()) }));
     setMrpLoading(true);
     setMrpLoadMessage("Atualizando necessidade, tr\u00e2nsito e estoque...");
     try {
@@ -1967,6 +1991,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   }, []);
 
   const refreshWip = async () => {
+    setCalendar((current) => ({ ...current, startDate: toDateInput(new Date()) }));
     setWipLoading(true);
     setWipLoadMessage("Atualizando O.S. em WIP e seus apontamentos...");
     try {
@@ -2067,21 +2092,47 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   }, [activeScenario, mrpSnapshot]);
   const mrpIPlan = useMemo(
     () => mrpSnapshotWithScenario
-      ? buildMrpLivePlan(mrpSnapshotWithScenario, { horizon: mrpHorizon, periodicity: mrpPeriodicity, safetyFactor: mrpSafetyFactor })
+      ? buildMrpLivePlan(mrpSnapshotWithScenario, {
+          startDate: getStartDate(calendar),
+          horizonDays: mrpHorizonDays,
+          periodicity: mrpPeriodicity,
+          safetyFactor: mrpSafetyFactor,
+        })
       : null,
-    [mrpHorizon, mrpPeriodicity, mrpSafetyFactor, mrpSnapshotWithScenario]
+    [calendar, mrpHorizonDays, mrpPeriodicity, mrpSafetyFactor, mrpSnapshotWithScenario]
   );
 
-  const mrpRows = useMemo(() => {
+  const mrpFilteredRows = useMemo(() => {
     const search = normalize(mrpSearch);
     const sourceRows = mrpIPlan?.rows ?? [];
-    const rows = search
+    return search
       ? sourceRows.filter(
           (row) => normalize(row.pn).includes(search) || normalize(row.description).includes(search)
         )
       : sourceRows;
-    return rows.slice(0, 80);
   }, [mrpIPlan, mrpSearch]);
+
+  const mrpRows = useMemo(() => mrpFilteredRows.slice(0, 80), [mrpFilteredRows]);
+
+  const mrpVisibleSummary = useMemo(() => (
+    mrpFilteredRows.reduce((summary, row) => ({
+      firmDemand: summary.firmDemand + row.firmDemand,
+      forecastFirmDemand: summary.forecastFirmDemand + row.forecastFirmDemand,
+      forecastPredictiveDemand: summary.forecastPredictiveDemand + row.forecastPredictiveDemand,
+      simulationDemand: summary.simulationDemand + row.simulationDemand,
+      incoming: summary.incoming + row.totalIncoming,
+      suggested: summary.suggested + row.totalSuggested,
+      shortages: summary.shortages + (row.totalSuggested > 0 ? 1 : 0),
+    }), {
+      firmDemand: 0,
+      forecastFirmDemand: 0,
+      forecastPredictiveDemand: 0,
+      simulationDemand: 0,
+      incoming: 0,
+      suggested: 0,
+      shortages: 0,
+    })
+  ), [mrpFilteredRows]);
 
   const capacity = useMemo(() => {
     const capacityStart = getStartDate(calendar);
@@ -2128,16 +2179,14 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   const ganttDays = useMemo(() => {
     const start = startOfDay(getStartDate(calendar));
     const horizonEnd = addDays(start, planningHorizonDays(calendar) - 1);
-    const scheduleEnd = startOfDay(ganttBounds.end);
-    const end = addDays(scheduleEnd > horizonEnd ? scheduleEnd : horizonEnd, 1);
     const days: Date[] = [];
     let cursor = start;
-    while (cursor <= end && days.length < 370) {
+    while (cursor <= horizonEnd && days.length < 370) {
       days.push(cursor);
       cursor = addDays(cursor, 1);
     }
     return days;
-  }, [calendar, ganttBounds.end]);
+  }, [calendar]);
 
   const ganttScale = useMemo(() => {
     const start = ganttDays[0] ?? startOfDay(ganttBounds.start);
@@ -2149,9 +2198,15 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
       start,
       end,
       span: Math.max(1, end.getTime() - start.getTime()),
-      width: Math.max(960, ganttDays.length * 150),
+      dayWidth: Math.max(170, Math.min(GANTT_DAY_WIDTH, Math.floor(6600 / Math.max(1, ganttDays.length)))),
+      width: Math.max(GANTT_MIN_WIDTH, ganttDays.length * Math.max(170, Math.min(GANTT_DAY_WIDTH, Math.floor(6600 / Math.max(1, ganttDays.length))))),
     };
   }, [ganttBounds.start, ganttDays]);
+
+  const ganttWindowEnd = useMemo(() => {
+    const lastDay = ganttDays[ganttDays.length - 1] ?? startOfDay(getStartDate(calendar));
+    return setTimeFromMinutes(lastDay, timeToMinutes(calendar.dayEnd));
+  }, [calendar, ganttDays]);
 
   const ganttWeekGroups = useMemo(() => {
     const groups: Array<{ key: string; label: string; days: number }> = [];
@@ -2873,7 +2928,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
               <h2>MRP I | Necessidade líquida de materiais</h2>
               <span>
                 {mrpSnapshot
-                  ? `${mrpIPlan?.weeks.length ?? 0} semanas | atualizado ${new Intl.DateTimeFormat("pt-BR", {
+                  ? `${mrpFilteredRows.length} de ${mrpIPlan?.rows.length ?? 0} materiais | ${mrpHorizonDays} dias a partir de ${formatDate(getStartDate(calendar))} | atualizado ${new Intl.DateTimeFormat("pt-BR", {
                       dateStyle: "short",
                       timeStyle: "short",
                     }).format(new Date(mrpSnapshot.generatedAt))}`
@@ -2908,7 +2963,6 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                 <select value={mrpPeriodicity} onChange={(event) => {
                   const periodicity = event.target.value as MrpPeriodicity;
                   setMrpPeriodicity(periodicity);
-                  setMrpHorizon(periodicity === "DIA" ? 31 : periodicity === "MES" ? 6 : 16);
                 }}>
                   <option value="DIA">Dias</option>
                   <option value="SEMANA">Semanas</option>
@@ -2916,8 +2970,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                 </select>
               </label>
               <label>
-                Horizonte
-                <input min={mrpPeriodicity === "DIA" ? 7 : mrpPeriodicity === "MES" ? 3 : 4} max={mrpPeriodicity === "DIA" ? 120 : mrpPeriodicity === "MES" ? 24 : 26} type="number" value={mrpHorizon} onChange={(event) => setMrpHorizon(Math.max(1, Math.floor(Number(event.target.value) || 1)))} />
+                Horizonte (dias)
+                <input min="1" max="365" type="number" value={mrpHorizonDays} onChange={(event) => setMrpHorizonDays(Math.max(1, Math.min(365, Math.floor(Number(event.target.value) || 1))))} />
               </label>
               <button className="button secondary" type="button" onClick={refreshMrpI} disabled={mrpLoading}>
                 {mrpLoading ? "Atualizando..." : "Atualizar dados"}
@@ -2929,35 +2983,36 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
           <div className="mrp-kpis">
             <div>
               <span>Necessidade O.S.</span>
-              <strong>{formatQuantity(mrpIPlan?.totalFirmDemand ?? 0)}</strong>
+              <strong>{formatQuantity(mrpVisibleSummary.firmDemand)}</strong>
             </div>
             <div>
               <span>Forecast firme</span>
-              <strong>{formatQuantity(mrpIPlan?.totalForecastFirmDemand ?? 0)}</strong>
+              <strong>{formatQuantity(mrpVisibleSummary.forecastFirmDemand)}</strong>
             </div>
             <div>
               <span>Forecast preditivo</span>
-              <strong>{formatQuantity(mrpIPlan?.totalForecastPredictiveDemand ?? 0)}</strong>
+              <strong>{formatQuantity(mrpVisibleSummary.forecastPredictiveDemand)}</strong>
             </div>
             <div>
               <span>Simulação local</span>
-              <strong>{formatQuantity(mrpIPlan?.totalSimulationDemand ?? 0)}</strong>
+              <strong>{formatQuantity(mrpVisibleSummary.simulationDemand)}</strong>
             </div>
             <div>
               <span>Compras em trânsito</span>
-              <strong>{formatQuantity(mrpIPlan?.totalIncoming ?? 0)}</strong>
+              <strong>{formatQuantity(mrpVisibleSummary.incoming)}</strong>
             </div>
             <div>
               <span>Sugestão de compra</span>
-              <strong>{formatQuantity(mrpIPlan?.totalSuggested ?? 0)}</strong>
+              <strong>{formatQuantity(mrpVisibleSummary.suggested)}</strong>
             </div>
             <div>
               <span>Itens com déficit</span>
-              <strong>{mrpIPlan?.shortageItems ?? 0}</strong>
+              <strong>{mrpVisibleSummary.shortages}</strong>
             </div>
           </div>
 
           <div className="mrp-source-strip">
+            <span>Exibindo: {mrpRows.length === mrpFilteredRows.length ? mrpRows.length : `${mrpRows.length} de ${mrpFilteredRows.length}`} linha(s)</span>
             <span>O.S. abertas: {mrpSnapshot?.counts.activeWorkOrders ?? 0}</span>
             <span>Linhas líquidas de O.S.: {mrpSnapshot?.counts.firmDemandLines ?? 0}</span>
             <span>Linhas de trânsito: {mrpSnapshot?.counts.transitLines ?? 0}</span>
@@ -2986,7 +3041,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                   <th>Simulação</th>
                   <th>Trânsito</th>
                   <th>Comprar</th>
-                  <th>Semanas</th>
+                  <th>{mrpPeriodicity === "DIA" ? "Dias" : mrpPeriodicity === "MES" ? "Meses" : "Semanas"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -3053,12 +3108,13 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
             <div>
               <h2>MRP II | Programação e capacidade</h2>
               <span>
-                {formatDateTime(ganttBounds.start)} até {formatDateTime(ganttBounds.end)}
+                Janela de {planningHorizonDays(calendar)} dias: {formatDateTime(getStartDate(calendar))} até {formatDateTime(ganttWindowEnd)}
               </span>
             </div>
             <div className="cm25-legend" aria-label="Legenda do Gantt">
               <b>CM25</b>
-              <span>Barra = trecho produtivo</span>
+              <span>Barra = operação produtiva</span>
+              <span className="legend-flow">continuidade da operação</span>
               <span className="legend-off">Sem produção</span>
               <span className="legend-lunch">Almoço</span>
               <span className="legend-late">Atraso</span>
@@ -3102,7 +3158,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                   className="cm25-week-row"
                   style={{
                     gridTemplateColumns: ganttWeekGroups
-                      .map((group) => `${group.days * 150}px`)
+                      .map((group) => `${group.days * ganttScale.dayWidth}px`)
                       .join(" "),
                   }}
                 >
@@ -3114,7 +3170,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                 </div>
                 <div
                   className="cm25-day-row"
-                  style={{ gridTemplateColumns: `repeat(${ganttDays.length}, 150px)` }}
+                  style={{ gridTemplateColumns: `repeat(${ganttDays.length}, ${ganttScale.dayWidth}px)` }}
                 >
                   {ganttDays.map((day) => (
                     <div
@@ -3128,18 +3184,20 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                 </div>
                 <div
                   className="cm25-hour-row"
-                  style={{ gridTemplateColumns: `repeat(${ganttDays.length}, 150px)` }}
+                  style={{ gridTemplateColumns: `repeat(${ganttDays.length}, ${ganttScale.dayWidth}px)` }}
                 >
                   {ganttDays.map((day) => (
                     <div
                       className={isWorkingDay(day, calendar) ? "cm25-hour-day" : "cm25-hour-day off"}
                       key={`hours-${dayKey(day)}`}
-                      style={{
-                        gridTemplateColumns: `repeat(${Math.max(1, ganttHourMarks.length)}, 1fr)`,
-                      }}
                     >
                       {isWorkingDay(day, calendar) ? (
-                        ganttHourMarks.map((hour) => <span key={`${dayKey(day)}-${hour}`}>{hour}</span>)
+                        ganttHourMarks.map((hour) => {
+                          const start = timeToMinutes(calendar.dayStart);
+                          const end = timeToMinutes(calendar.dayEnd);
+                          const left = ((timeToMinutes(hour) - start) / Math.max(1, end - start)) * 100;
+                          return <span key={`${dayKey(day)}-${hour}`} style={{ left: `${Math.max(0, Math.min(100, left))}%` }}>{hour}</span>;
+                        })
                       ) : (
                         <span>parado</span>
                       )}
@@ -3171,7 +3229,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                       className="cm25-track"
                       style={{
                         width: `${ganttScale.width}px`,
-                        backgroundSize: "150px 100%, 100% 100%",
+                        backgroundSize: `${ganttScale.dayWidth}px 100%, 100% 100%`,
                       }}
                     >
                       {ganttDays.map((day, index) => {
@@ -3181,7 +3239,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                             aria-hidden="true"
                             className="cm25-off-column"
                             key={`off-${lane.key}-${dayKey(day)}`}
-                            style={{ left: `${index * 150}px`, width: "150px" }}
+                            style={{ left: `${index * ganttScale.dayWidth}px`, width: `${ganttScale.dayWidth}px` }}
                           />
                         );
                       })}
@@ -3212,15 +3270,46 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                           />
                         );
                       })}
+                      {ganttDays.flatMap((day, dayIndex) => {
+                        if (!isWorkingDay(day, calendar)) return [];
+                        const dayStart = timeToMinutes(calendar.dayStart);
+                        const dayEnd = timeToMinutes(calendar.dayEnd);
+                        return ganttHourMarks.map((hour) => {
+                          const minute = timeToMinutes(hour);
+                          const withinDay = ((minute - dayStart) / Math.max(1, dayEnd - dayStart)) * ganttScale.dayWidth;
+                          return (
+                            <span
+                              aria-hidden="true"
+                              className="cm25-time-tick"
+                              key={`tick-${lane.key}-${dayKey(day)}-${hour}`}
+                              style={{ left: `${dayIndex * ganttScale.dayWidth + Math.max(0, Math.min(ganttScale.dayWidth, withinDay))}px` }}
+                            />
+                          );
+                        });
+                      })}
+                      {laneOps.map((operation) => {
+                        const left = ((operation.start.getTime() - ganttScale.start.getTime()) / ganttScale.span) * ganttScale.width;
+                        const width = ((operation.end.getTime() - operation.start.getTime()) / ganttScale.span) * ganttScale.width;
+                        return (
+                          <span
+                            aria-hidden="true"
+                            className="cm25-operation-flow"
+                            key={`flow-${operation.id}`}
+                            style={{ left: `${Math.max(0, left)}px`, width: `${Math.max(3, width)}px`, borderColor: stageColors[lane.stage] }}
+                          />
+                        );
+                      })}
                       {laneOps
-                        .flatMap((operation) =>
-                          productiveSegments(operation.start, operation.end, calendar).map((segment, index) => ({
+                        .flatMap((operation) => {
+                          const segments = productiveSegments(operation.start, operation.end, calendar);
+                          return segments.map((segment, index) => ({
                             operation,
                             segment,
                             primary: index === 0,
-                          }))
-                        )
-                        .map(({ operation, segment, primary }) => {
+                            final: index === segments.length - 1,
+                          }));
+                        })
+                        .map(({ operation, segment, primary, final }) => {
                           const left =
                             ((segment.start.getTime() - ganttScale.start.getTime()) /
                               ganttScale.span) *
@@ -3230,13 +3319,15 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                               ganttScale.span) *
                             ganttScale.width;
                           const late = operation.end > parseDate(operation.dueDate);
-                          const showLabel = primary && width >= 68;
+                          const showLabel = (primary && width >= 52) || width >= 104;
                           return (
                             <button
                               className={[
                                 "cm25-op",
                                 "segmented",
                                 width < 68 ? "compact" : "",
+                                primary ? "starts-operation" : "",
+                                final ? "ends-operation" : "",
                                 late ? "late" : "",
                               ].filter(Boolean).join(" ")}
                               key={`${operation.id}-${segment.start.toISOString()}`}
@@ -3322,86 +3413,6 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                   Necessário: {row.requiredOperators}
                 </strong>
               </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section hidden={activeWorkspace !== "mrp2"} className="legacy-gantt-section mx-auto grid max-w-7xl gap-4 px-5 pb-5 xl:grid-cols-[1.45fr_1fr]">
-        <div className="panel wide">
-          <div className="section-head">
-            <h2>Gantt por etapa</h2>
-            <span>
-              {formatDateTime(ganttBounds.start)} até {formatDateTime(ganttBounds.end)}
-            </span>
-          </div>
-          <div className="gantt">
-            {stages.map((stage) => {
-              const laneOps = operations.filter((operation) => operation.stage === stage);
-              return (
-                <div className="gantt-lane" key={stage}>
-                  <button
-                    type="button"
-                    className={stage === selectedStage ? "lane-label selected" : "lane-label"}
-                    onClick={() => setSelectedStage(stage)}
-                  >
-                    {stage}
-                  </button>
-                  <div className="lane-track">
-                    {laneOps.slice(0, 18).map((operation) => {
-                      const left =
-                        ((operation.start.getTime() - ganttBounds.start.getTime()) /
-                          ganttBounds.span) *
-                        100;
-                      const width =
-                        ((operation.end.getTime() - operation.start.getTime()) /
-                          ganttBounds.span) *
-                        100;
-                      const late = operation.end > parseDate(operation.dueDate);
-                      return (
-                        <span
-                          className={late ? "bar late" : "bar"}
-                          key={operation.id}
-                          style={{
-                            left: `${Math.max(0, left)}%`,
-                            width: `${Math.max(2.5, width)}%`,
-                            backgroundColor: stageColors[stage],
-                          }}
-                          title={`O.S ${operation.os} · Pedido ${operation.item} · ${operation.customer} · ${formatDateTime(
-                            operation.start
-                          )} - ${formatDateTime(operation.end)} · tempo produtivo ${formatDuration(operation.minutes)}`}
-                        >
-                          {operation.os}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="panel">
-          <div className="section-head">
-            <h2>Capacidade</h2>
-            <span>{horizonDays} dias corridos desde {weekLabel(getStartDate(calendar))}, descontando paradas</span>
-          </div>
-          <div className="capacity-list">
-            {capacity.map((row) => (
-              <button
-                key={row.stage}
-                className={row.stage === selectedStage ? "capacity-row selected" : "capacity-row"}
-                type="button"
-                onClick={() => setSelectedStage(row.stage)}
-              >
-                <span>{row.stage}</span>
-                <b>{row.hours.toFixed(1)}h</b>
-                <i>
-                  <span style={{ width: `${Math.min(100, row.load * 100)}%` }} />
-                </i>
-                <em>{Math.round(row.load * 100)}%</em>
-              </button>
             ))}
           </div>
         </div>
@@ -3512,7 +3523,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
 }
 
 function countWorkingDays(start: Date, end: Date, calendar: CalendarConfig) {
-  let cursor = new Date(start);
+  const cursor = new Date(start);
   cursor.setHours(0, 0, 0, 0);
   const finish = new Date(end);
   finish.setHours(0, 0, 0, 0);

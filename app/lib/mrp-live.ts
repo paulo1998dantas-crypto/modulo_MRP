@@ -78,6 +78,17 @@ function startOfPeriod(value: Date, periodicity: MrpPeriodicity) {
   return startOfWeek(copy);
 }
 
+/**
+ * MRP always starts at the supplied operational date.  Period labels may be
+ * grouped by week or month, but must not silently pull the planning window
+ * back to the first day of the week/month.
+ */
+function planningStart(value: Date) {
+  const copy = new Date(value);
+  copy.setHours(12, 0, 0, 0);
+  return copy;
+}
+
 function addPeriod(value: Date, index: number, periodicity: MrpPeriodicity) {
   const copy = new Date(value);
   if (periodicity === "DIA") copy.setDate(copy.getDate() + index);
@@ -98,7 +109,7 @@ function bucketIndex(value: string | null, start: Date, length: number, periodic
   let index = 0;
   if (periodicity === "DIA") index = Math.floor((startOfPeriod(target, periodicity).getTime() - start.getTime()) / DAY);
   else if (periodicity === "MES") index = (target.getFullYear() - start.getFullYear()) * 12 + target.getMonth() - start.getMonth();
-  else index = Math.floor((startOfWeek(target).getTime() - start.getTime()) / (DAY * 7));
+  else index = Math.floor((startOfWeek(target).getTime() - startOfWeek(start).getTime()) / (DAY * 7));
   return index >= 0 && index < length ? index : -1;
 }
 
@@ -116,14 +127,29 @@ function read(bucket: Map<string, number[]>, pn: string, size: number) {
 /** Read-only MRP I projection: it never changes purchase orders, stock or reservations. */
 export function buildMrpLivePlan(
   snapshot: MrpLiveSnapshot,
-  options: { startDate?: Date; horizonWeeks?: number; safetyFactor?: number; periodicity?: MrpPeriodicity; horizon?: number } = {}
+  options: { startDate?: Date; horizonWeeks?: number; safetyFactor?: number; periodicity?: MrpPeriodicity; horizon?: number; horizonDays?: number } = {}
 ): MrpLivePlan {
   const periodicity = options.periodicity ?? "SEMANA";
   const defaultHorizon = periodicity === "DIA" ? 31 : periodicity === "MES" ? 6 : 16;
-  const maxHorizon = periodicity === "DIA" ? 120 : periodicity === "MES" ? 24 : 26;
+  const maxHorizon = periodicity === "DIA" ? 365 : periodicity === "MES" ? 13 : 53;
   const minHorizon = periodicity === "DIA" ? 7 : periodicity === "MES" ? 3 : 4;
-  const start = startOfPeriod(options.startDate ?? new Date(), periodicity);
-  const count = Math.max(minHorizon, Math.min(maxHorizon, Math.floor(options.horizon ?? options.horizonWeeks ?? defaultHorizon)));
+  const start = planningStart(options.startDate ?? new Date());
+  const rawHorizonDays = Number(options.horizonDays);
+  const requestedDays = Number.isFinite(rawHorizonDays) && rawHorizonDays > 0
+    ? Math.max(1, Math.min(365, Math.floor(rawHorizonDays)))
+    : 0;
+  const horizonEnd = new Date(start);
+  horizonEnd.setDate(horizonEnd.getDate() + Math.max(0, requestedDays - 1));
+  const periodsForDays = requestedDays
+    ? periodicity === "DIA"
+      ? requestedDays
+      : periodicity === "MES"
+        ? (horizonEnd.getFullYear() - start.getFullYear()) * 12 + horizonEnd.getMonth() - start.getMonth() + 1
+        : Math.floor((startOfWeek(horizonEnd).getTime() - startOfWeek(start).getTime()) / (DAY * 7)) + 1
+    : 0;
+  const count = requestedDays
+    ? Math.max(1, Math.min(maxHorizon, periodsForDays))
+    : Math.max(minHorizon, Math.min(maxHorizon, Math.floor(options.horizon ?? options.horizonWeeks ?? defaultHorizon)));
   const safety = Math.max(0, numberOf(options.safetyFactor));
   const weeks = Array.from({ length: count }, (_, index) => {
     const date = addPeriod(start, index, periodicity);

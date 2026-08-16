@@ -838,6 +838,7 @@ textarea {
 .cm25-legend .legend-late { border-color: #edc2c5; background: #fff8f8; color: #a72f39; }
 .cm25-legend .legend-off { background: #eef1f2; color: #65747c; }
 .cm25-legend .legend-lunch { border-color: #f0d69a; background: #fff8e8; color: #93620e; }
+.cm25-legend .legend-flow { border-style: dashed; border-color: #9aaab2; color: #586a73; }
 
 .cm25-scroll {
   max-height: 660px;
@@ -912,25 +913,30 @@ textarea {
 .cm25-day span { color: var(--muted); font-size: 10px; font-weight: 700; }
 
 .cm25-hour-day {
-  display: grid;
-  align-items: center;
+  position: relative;
+  min-width: 0;
   border-right: 1px solid var(--line);
   background: #fbfcfc;
 }
 
 .cm25-hour-day.off { background: #e9edef; }
 .cm25-hour-day span {
+  position: absolute;
+  top: 4px;
+  bottom: 0;
+  display: block;
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid #edf0f1;
   color: #728087;
-  padding: 0 4px;
+  padding-left: 4px;
   font-size: 10px;
   font-weight: 700;
-  line-height: 26px;
+  line-height: 19px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.cm25-hour-day.off span { position: static; padding: 4px 10px; }
 
 .cm25-row-shell { display: contents; }
 
@@ -962,9 +968,11 @@ textarea {
 
 .cm25-track {
   position: relative;
-  min-height: 58px;
+  min-height: 66px;
+  overflow: hidden;
   border-bottom: 1px solid #e9eef0;
   background-color: #fbfcfc;
+  background-image: linear-gradient(to right, rgba(196, 207, 211, 0.55) 1px, transparent 1px);
 }
 
 .cm25-track::after {
@@ -989,23 +997,53 @@ textarea {
   border-inline: 1px solid rgba(184, 125, 23, 0.34);
 }
 
+.cm25-time-tick {
+  position: absolute;
+  inset-block: 0;
+  z-index: 2;
+  width: 1px;
+  pointer-events: none;
+  background: rgba(160, 175, 179, 0.42);
+}
+
+.cm25-operation-flow {
+  position: absolute;
+  top: 32px;
+  z-index: 3;
+  height: 0;
+  border-top: 2px dashed currentColor;
+  opacity: 0.62;
+  pointer-events: none;
+}
+
 .cm25-op {
   position: absolute;
-  top: 9px;
+  top: 11px;
   z-index: 5;
   display: flex;
-  min-height: 40px;
+  min-height: 42px;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
   gap: 2px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.82);
-  border-radius: 5px;
+  border-radius: 9px;
   color: #ffffff;
   padding: 0 8px;
   text-align: left;
-  box-shadow: 0 2px 6px rgba(30, 42, 49, 0.2);
+  box-shadow: 0 3px 8px rgba(30, 42, 49, 0.22);
+  transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cm25-op:hover,
+.cm25-op:focus-visible {
+  z-index: 8;
+  filter: saturate(1.18) brightness(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(30, 42, 49, 0.3);
+  outline: 2px solid #062f31;
+  outline-offset: 1px;
 }
 
 .cm25-op strong,
@@ -1018,8 +1056,10 @@ textarea {
 
 .cm25-op strong { font-size: 12px; font-weight: 800; }
 .cm25-op span { font-size: 10px; font-weight: 700; opacity: 0.94; }
-.cm25-op.segmented { padding-inline: 5px; }
-.cm25-op.segmented.compact { min-width: 0; padding: 0; }
+.cm25-op.segmented { padding-inline: 7px; }
+.cm25-op.segmented.compact { min-width: 0; padding: 0; border-radius: 4px; }
+.cm25-op.segmented.starts-operation { border-left-width: 3px; }
+.cm25-op.segmented.ends-operation { border-right-width: 3px; }
 .cm25-op.late { outline: 2px solid var(--red); outline-offset: 1px; }
 
 .cm25-detail {
