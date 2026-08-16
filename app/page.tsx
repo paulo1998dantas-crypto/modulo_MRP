@@ -1528,6 +1528,7 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
 }
 
 function formatDateTime(date: Date) {
+  if (Number.isNaN(date.getTime())) return "Sem data";
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -1536,12 +1537,14 @@ function formatDateTime(date: Date) {
   }).format(date);
 }
 
-function formatDate(date: string) {
+function formatDate(date: string | Date | null | undefined) {
+  const parsed = date instanceof Date ? date : date ? parseDate(date) : new Date(Number.NaN);
+  if (Number.isNaN(parsed.getTime())) return "Sem data";
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
-  }).format(parseDate(date));
+  }).format(parsed);
 }
 
 function weekLabel(date: Date) {
