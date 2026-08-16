@@ -234,7 +234,7 @@ const stageDependencies: Record<Stage, Stage[]> = {
 };
 
 const STATE_VERSION = "supabase-only-2026-08-15";
-const GANTT_DAY_WIDTH = 210;
+const GANTT_DAY_WIDTH = 320;
 const GANTT_MIN_WIDTH = 1180;
 
 const initialOperators: Record<Stage, number> = {
@@ -2205,12 +2205,13 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
       ganttDays.length > 0
         ? addDays(ganttDays[ganttDays.length - 1], 1)
         : addDays(start, 1);
+    const dayWidth = GANTT_DAY_WIDTH;
     return {
       start,
       end,
       span: Math.max(1, end.getTime() - start.getTime()),
-      dayWidth: Math.max(170, Math.min(GANTT_DAY_WIDTH, Math.floor(6600 / Math.max(1, ganttDays.length)))),
-      width: Math.max(GANTT_MIN_WIDTH, ganttDays.length * Math.max(170, Math.min(GANTT_DAY_WIDTH, Math.floor(6600 / Math.max(1, ganttDays.length))))),
+      dayWidth,
+      width: Math.max(GANTT_MIN_WIDTH, ganttDays.length * dayWidth),
     };
   }, [ganttBounds.start, ganttDays]);
 
@@ -3330,7 +3331,6 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                               ganttScale.span) *
                             ganttScale.width;
                           const late = operation.end > parseDate(operation.dueDate);
-                          const showLabel = primary || width >= 104;
                           const identity = `O.S. ${operation.os} · ${shortChassis(operation.chassis)}`;
                           return (
                             <button
@@ -3357,12 +3357,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                                 segment.end
                               )} | total produtivo ${formatDuration(operation.minutes)} | entrega ${formatDate(operation.dueDate)}`}
                             >
-                              {showLabel ? (
-                                <>
-                                  <strong>{identity}</strong>
-                                  <span>Posto {operation.operator} · prod. {formatDuration(operation.minutes)}</span>
-                                </>
-                              ) : null}
+                              <strong>{identity}</strong>
+                              <span>Posto {operation.operator} · prod. {formatDuration(operation.minutes)}</span>
                             </button>
                           );
                         })}

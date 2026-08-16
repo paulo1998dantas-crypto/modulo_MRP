@@ -841,6 +841,8 @@ textarea {
 .cm25-legend .legend-flow { border-style: dashed; border-color: #9aaab2; color: #586a73; }
 
 .cm25-scroll {
+  position: relative;
+  isolation: isolate;
   max-height: 660px;
   overflow: auto;
   border-bottom: 1px solid var(--line);
@@ -856,7 +858,7 @@ textarea {
   position: sticky;
   top: 0;
   left: 0;
-  z-index: 5;
+  z-index: 40;
   display: grid;
   align-content: center;
   min-height: 92px;
@@ -874,12 +876,13 @@ textarea {
 .cm25-timeline-head {
   position: sticky;
   top: 0;
-  z-index: 4;
+  z-index: 30;
   display: grid;
   min-height: 92px;
   grid-template-rows: 24px 42px 26px;
   border-bottom: 1px solid var(--line-strong);
   background: #edf3f2;
+  box-shadow: 0 5px 10px rgba(30, 42, 49, 0.12);
 }
 
 .cm25-week-row,
@@ -943,7 +946,7 @@ textarea {
 .cm25-process {
   position: sticky;
   left: 0;
-  z-index: 3;
+  z-index: 12;
   display: grid;
   align-content: center;
   min-height: 58px;
@@ -1059,13 +1062,19 @@ textarea {
 .cm25-op strong { font-size: 11px; font-weight: 800; }
 .cm25-op span { font-size: 10px; font-weight: 700; opacity: 0.94; }
 .cm25-op.segmented { padding-inline: 7px; }
-.cm25-op.segmented.compact { min-width: 0; padding: 0; border-radius: 4px; }
+.cm25-op.segmented.compact { min-width: 0; padding-inline: 2px; border-radius: 4px; }
+.cm25-op.segmented.compact strong { font-size: 9px; }
+.cm25-op.segmented.compact span { display: none; }
 .cm25-op.segmented.compact:hover,
 .cm25-op.segmented.compact:focus-visible {
   min-width: 168px;
   padding-inline: 7px;
   border-radius: 9px;
 }
+.cm25-op.segmented.compact:hover strong,
+.cm25-op.segmented.compact:focus-visible strong { font-size: 11px; }
+.cm25-op.segmented.compact:hover span,
+.cm25-op.segmented.compact:focus-visible span { display: block; }
 .cm25-op.segmented.starts-operation { border-left-width: 3px; }
 .cm25-op.segmented.ends-operation { border-right-width: 3px; }
 .cm25-op.late { outline: 2px solid var(--red); outline-offset: 1px; }
