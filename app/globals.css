@@ -1039,6 +1039,8 @@ textarea {
 .cm25-op:hover,
 .cm25-op:focus-visible {
   z-index: 8;
+  min-width: 168px;
+  overflow: visible;
   filter: saturate(1.18) brightness(1.05);
   transform: translateY(-2px);
   box-shadow: 0 8px 18px rgba(30, 42, 49, 0.3);
@@ -1054,10 +1056,16 @@ textarea {
   white-space: nowrap;
 }
 
-.cm25-op strong { font-size: 12px; font-weight: 800; }
+.cm25-op strong { font-size: 11px; font-weight: 800; }
 .cm25-op span { font-size: 10px; font-weight: 700; opacity: 0.94; }
 .cm25-op.segmented { padding-inline: 7px; }
 .cm25-op.segmented.compact { min-width: 0; padding: 0; border-radius: 4px; }
+.cm25-op.segmented.compact:hover,
+.cm25-op.segmented.compact:focus-visible {
+  min-width: 168px;
+  padding-inline: 7px;
+  border-radius: 9px;
+}
 .cm25-op.segmented.starts-operation { border-left-width: 3px; }
 .cm25-op.segmented.ends-operation { border-right-width: 3px; }
 .cm25-op.late { outline: 2px solid var(--red); outline-offset: 1px; }

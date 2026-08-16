@@ -69,6 +69,7 @@ type Operation = {
   orderId: number;
   item: string;
   os: string;
+  chassis: string;
   customer: string;
   stage: Stage;
   line: string;
@@ -1500,7 +1501,8 @@ function buildSchedule(orders: Order[], rules: TimeRule[], calendar: CalendarCon
         id: `${order.id}-${stage}`,
         orderId: order.id,
         item: order.item,
-        os: order.chassis,
+        os: order.item,
+        chassis: order.chassis,
         customer: order.customer,
         stage,
         line: order.line,
@@ -1545,6 +1547,12 @@ function formatDate(date: string | Date | null | undefined) {
     month: "2-digit",
     year: "2-digit",
   }).format(parsed);
+}
+
+function shortChassis(chassis: string) {
+  const normalized = chassis.trim();
+  if (!normalized) return "SEM CHASSI";
+  return normalized.length > 8 ? normalized.slice(-8) : normalized;
 }
 
 function weekLabel(date: Date) {
@@ -2469,14 +2477,14 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
 
   function exportMrpII() {
     const ganttRows = [
-      ["PROCESSO", "POSTO", "O.S. / REFERENCIA", "CLIENTE", "ENTREGA", ...ganttDays.map((day) => formatDate(dayKey(day)))],
+      ["PROCESSO", "POSTO", "O.S.", "CHASSI", "CLIENTE", "ENTREGA", ...ganttDays.map((day) => formatDate(dayKey(day)))],
       ...operations.map((operation) => {
         const days = ganttDays.map((day) => {
           const start = startOfDay(day);
           const end = addDays(start, 1);
           return operation.start < end && operation.end > start ? "■" : "";
         });
-        return [operation.stage, `Posto ${operation.operator}`, operation.os, operation.customer, formatDate(operation.dueDate), ...days];
+        return [operation.stage, `Posto ${operation.operator}`, operation.os, operation.chassis, operation.customer, formatDate(operation.dueDate), ...days];
       }),
     ];
     const forecastRows = [
@@ -3322,7 +3330,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                               ganttScale.span) *
                             ganttScale.width;
                           const late = operation.end > parseDate(operation.dueDate);
-                          const showLabel = (primary && width >= 52) || width >= 104;
+                          const showLabel = primary || width >= 104;
+                          const identity = `O.S. ${operation.os} · ${shortChassis(operation.chassis)}`;
                           return (
                             <button
                               className={[
@@ -3336,12 +3345,13 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                               key={`${operation.id}-${segment.start.toISOString()}`}
                               type="button"
                               onClick={() => setSelectedStage(lane.stage)}
+                              aria-label={`${operation.stage}, O.S. ${operation.os}, chassi ${operation.chassis || "não informado"}, posto ${operation.operator}`}
                               style={{
                                 left: `${Math.max(0, left)}px`,
                                 width: `${Math.max(3, width)}px`,
                                 backgroundColor: stageColors[lane.stage],
                               }}
-                              title={`${operation.stage} | O.S. ${operation.os} | Pedido ${operation.item} | ${
+                              title={`${operation.stage} | O.S. ${operation.os} | Chassi ${operation.chassis || "não informado"} | ${
                                 operation.customer
                               } | trecho produtivo ${formatDateTime(segment.start)} até ${formatDateTime(
                                 segment.end
@@ -3349,8 +3359,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                             >
                               {showLabel ? (
                                 <>
-                                  <strong>{operation.os}</strong>
-                                  <span>#{operation.item} · OP{operation.operator} · prod. {formatDuration(operation.minutes)}</span>
+                                  <strong>{identity}</strong>
+                                  <span>Posto {operation.operator} · prod. {formatDuration(operation.minutes)}</span>
                                 </>
                               ) : null}
                             </button>
@@ -3374,8 +3384,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                 const late = operation.end > parseDate(operation.dueDate);
                 return (
                   <span className={late ? "detail-chip late" : "detail-chip"} key={operation.id}>
-                    <b>O.S {operation.os}</b>
-                    #{operation.item} · OP{operation.operator} · prod. {formatDuration(operation.minutes)} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
+                    <b>O.S. {operation.os} · Chassi {operation.chassis || "não informado"}</b>
+                    Posto {operation.operator} · prod. {formatDuration(operation.minutes)} · {formatDateTime(operation.start)} - {formatDateTime(operation.end)}
                   </span>
                 );
               })}
