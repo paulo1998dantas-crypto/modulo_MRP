@@ -12,7 +12,7 @@ O MRP usa a mesma base de usuários do ERP. Somente usuários ativos que possuam
 - Pedidos de compra em trânsito: módulo Suprimentos.
 - Necessidades e B.O.M.: Cadastro e O.S. abertas.
 - WIP, sequência e etapas: MES.
-- Cenários simulados: armazenamento local do navegador; eles não criam O.S., pedidos, empenhos ou movimentações.
+- Cenários simulados: persistidos no Supabase; eles não criam O.S., pedidos, empenhos ou movimentações.
 
 O MRP é de leitura operacional: ele não altera saldo, pedido de compra, O.S., B.O.M. nem apontamento produtivo.
 

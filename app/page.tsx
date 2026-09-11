@@ -1920,7 +1920,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   const [wipLoadMessage, setWipLoadMessage] = useState("Carregando O.S. em WIP...");
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [activeScenarioId, setActiveScenarioId] = useState("");
-  const [scenarioStorageReady, setScenarioStorageReady] = useState(false);
+  const [scenarioLoading, setScenarioLoading] = useState(true);
+  const [scenarioSaving, setScenarioSaving] = useState(false);
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioMessage, setScenarioMessage] = useState("");
   const vehicleInputRef = useRef<HTMLInputElement>(null);
@@ -1949,21 +1950,30 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   }, []);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("ji-mrp-scenarios-v1");
-    if (!saved) {
-      setScenarioStorageReady(true);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(saved) as { scenarios?: Scenario[]; activeScenarioId?: string };
-      const safeScenarios = Array.isArray(parsed.scenarios) ? parsed.scenarios : [];
-      setScenarios(safeScenarios);
-      setActiveScenarioId(safeScenarios.some((scenario) => scenario.id === parsed.activeScenarioId) ? parsed.activeScenarioId || "" : "");
-    } catch {
-      window.localStorage.removeItem("ji-mrp-scenarios-v1");
-    } finally {
-      setScenarioStorageReady(true);
-    }
+    let active = true;
+    void fetch("/api/scenarios", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = (await response.json()) as { scenarios?: Scenario[]; error?: string };
+        if (!response.ok || payload.error) throw new Error(payload.error || "Não foi possível carregar os cenários salvos.");
+        return Array.isArray(payload.scenarios) ? payload.scenarios : [];
+      })
+      .then((loadedScenarios) => {
+        if (!active) return;
+        setScenarios(loadedScenarios);
+        const savedActiveId = window.localStorage.getItem("ji-mrp-active-scenario") || "";
+        const preferredId = loadedScenarios.some((scenario) => scenario.id === savedActiveId)
+          ? savedActiveId
+          : loadedScenarios[0]?.id || "";
+        setActiveScenarioId(preferredId);
+        setScenarioMessage(loadedScenarios.length ? `${loadedScenarios.length} cenário(s) persistente(s) carregado(s).` : "Nenhum cenário persistente cadastrado.");
+      })
+      .catch((error) => {
+        if (active) setScenarioMessage(error instanceof Error ? error.message : "Não foi possível carregar os cenários salvos.");
+      })
+      .finally(() => {
+        if (active) setScenarioLoading(false);
+      });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -1974,9 +1984,10 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
   }, [rules, calendar]);
 
   useEffect(() => {
-    if (!scenarioStorageReady) return;
-    window.localStorage.setItem("ji-mrp-scenarios-v1", JSON.stringify({ scenarios, activeScenarioId }));
-  }, [activeScenarioId, scenarioStorageReady, scenarios]);
+    if (scenarioLoading) return;
+    if (activeScenarioId) window.localStorage.setItem("ji-mrp-active-scenario", activeScenarioId);
+    else window.localStorage.removeItem("ji-mrp-active-scenario");
+  }, [activeScenarioId, scenarioLoading]);
 
   const refreshMrpI = async () => {
     setCalendar((current) => ({ ...current, startDate: toDateInput(new Date()) }));
@@ -2369,42 +2380,78 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
     });
   }
 
-  function createScenario() {
-    const name = scenarioName.trim() || `CenÃ¡rio ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date())}`;
-    const scenario: Scenario = {
-      id: `scenario-${Date.now()}`,
-      name,
-      createdAt: new Date().toISOString(),
-      vehicles: [],
-      materials: [],
-    };
-    setScenarios((current) => [scenario, ...current]);
-    setActiveScenarioId(scenario.id);
-    setScenarioName("");
-    setScenarioMessage(`CenÃ¡rio “${name}” criado. Ele estÃ¡ vazio e nÃ£o altera o Supabase.`);
+  async function createScenario() {
+    const name = scenarioName.trim() || `Cenário ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date())}`;
+    setScenarioSaving(true);
+    try {
+      const response = await fetch("/api/scenarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const payload = (await response.json()) as { scenario?: Scenario; error?: string };
+      if (!response.ok || payload.error || !payload.scenario) throw new Error(payload.error || "Não foi possível salvar o cenário.");
+      setScenarios((current) => [payload.scenario!, ...current.filter((scenario) => scenario.id !== payload.scenario!.id)]);
+      setActiveScenarioId(payload.scenario.id);
+      setScenarioName("");
+      setScenarioMessage(`Cenário “${payload.scenario.name}” salvo no Supabase.`);
+    } catch (error) {
+      setScenarioMessage(error instanceof Error ? error.message : "Não foi possível salvar o cenário.");
+    } finally {
+      setScenarioSaving(false);
+    }
   }
 
-  function updateActiveScenario(mutator: (scenario: Scenario) => Scenario) {
+  async function updateActiveScenario(mutator: (scenario: Scenario) => Scenario) {
     if (!activeScenario) {
-      setScenarioMessage("Crie ou selecione um cenÃ¡rio antes de importar dados simulados.");
+      setScenarioMessage("Crie ou selecione um cenário antes de importar dados simulados.");
       return false;
     }
-    setScenarios((current) => current.map((scenario) => scenario.id === activeScenario.id ? mutator(scenario) : scenario));
-    return true;
+    const previous = activeScenario;
+    const next = mutator(previous);
+    setScenarios((current) => current.map((scenario) => scenario.id === previous.id ? next : scenario));
+    setScenarioSaving(true);
+    try {
+      const response = await fetch(`/api/scenarios/${encodeURIComponent(next.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: next.name, vehicles: next.vehicles, materials: next.materials }),
+      });
+      const payload = (await response.json()) as { scenario?: Scenario; error?: string };
+      if (!response.ok || payload.error || !payload.scenario) throw new Error(payload.error || "Não foi possível salvar as alterações do cenário.");
+      setScenarios((current) => current.map((scenario) => scenario.id === payload.scenario!.id ? payload.scenario! : scenario));
+      return true;
+    } catch (error) {
+      setScenarios((current) => current.map((scenario) => scenario.id === previous.id ? previous : scenario));
+      setScenarioMessage(error instanceof Error ? error.message : "Não foi possível salvar as alterações do cenário.");
+      return false;
+    } finally {
+      setScenarioSaving(false);
+    }
   }
 
-  function deleteActiveScenario() {
+  async function deleteActiveScenario() {
     if (!activeScenario) return;
     const deletedName = activeScenario.name;
-    setScenarios((current) => current.filter((scenario) => scenario.id !== activeScenario.id));
-    setActiveScenarioId("");
-    setScenarioMessage(`CenÃ¡rio “${deletedName}” excluÃ­do. Nenhum dado real foi alterado.`);
+    setScenarioSaving(true);
+    try {
+      const response = await fetch(`/api/scenarios/${encodeURIComponent(activeScenario.id)}`, { method: "DELETE" });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok || payload.error) throw new Error(payload.error || "Não foi possível excluir o cenário.");
+      setScenarios((current) => current.filter((scenario) => scenario.id !== activeScenario.id));
+      setActiveScenarioId("");
+      setScenarioMessage(`Cenário “${deletedName}” excluído. Nenhum dado operacional foi alterado.`);
+    } catch (error) {
+      setScenarioMessage(error instanceof Error ? error.message : "Não foi possível excluir o cenário.");
+    } finally {
+      setScenarioSaving(false);
+    }
   }
 
-  function clearActiveScenario(kind: "vehicles" | "materials") {
+  async function clearActiveScenario(kind: "vehicles" | "materials") {
     if (!activeScenario) return;
-    updateActiveScenario((scenario) => ({ ...scenario, [kind]: [] }));
-    setScenarioMessage(kind === "vehicles" ? "VeÃ­culos simulados removidos do cenÃ¡rio." : "Demandas simuladas removidas do cenÃ¡rio.");
+    const saved = await updateActiveScenario((scenario) => ({ ...scenario, [kind]: [] }));
+    if (saved) setScenarioMessage(kind === "vehicles" ? "Veículos simulados removidos do cenário." : "Demandas simuladas removidas do cenário.");
   }
 
   function downloadVehicleTemplate() {
@@ -2452,8 +2499,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
       const records = await readXlsxRecords(file, "DATA_ENTREGA");
       const rows = scenarioVehicleRows(records, activeScenario.vehicles.length + 1);
       if (!rows.length) throw new Error("Nenhum veÃ­culo vÃ¡lido foi encontrado. Informe ao menos DATA_ENTREGA.");
-      updateActiveScenario((scenario) => ({ ...scenario, vehicles: [...scenario.vehicles, ...rows] }));
-      setScenarioMessage(`${rows.length} veÃ­culo(s) simulado(s) incluÃ­do(s) em “${activeScenario.name}”.`);
+      const saved = await updateActiveScenario((scenario) => ({ ...scenario, vehicles: [...scenario.vehicles, ...rows] }));
+      if (saved) setScenarioMessage(`${rows.length} veÃ­culo(s) simulado(s) incluído(s) e salvo(s) em “${activeScenario.name}”.`);
     } catch (error) {
       setScenarioMessage(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel importar os veÃ­culos simulados.");
     } finally {
@@ -2467,8 +2514,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
       const records = await readXlsxRecords(file, "SKU");
       const rows = scenarioMaterialRows(records);
       if (!rows.length) throw new Error("Nenhuma necessidade vÃ¡lida foi encontrada. Informe SKU, DATA_NECESSIDADE e QUANTIDADE.");
-      updateActiveScenario((scenario) => ({ ...scenario, materials: [...scenario.materials, ...rows] }));
-      setScenarioMessage(`${rows.length} necessidade(s) de material incluÃ­da(s) em “${activeScenario.name}”.`);
+      const saved = await updateActiveScenario((scenario) => ({ ...scenario, materials: [...scenario.materials, ...rows] }));
+      if (saved) setScenarioMessage(`${rows.length} necessidade(s) de material incluída(s) e salva(s) em “${activeScenario.name}”.`);
     } catch (error) {
       setScenarioMessage(error instanceof Error ? error.message : "NÃ£o foi possÃ­vel importar os materiais simulados.");
     } finally {
@@ -2855,7 +2902,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
           <div className="section-head">
             <div>
               <h2>Cenários de simulação</h2>
-              <span>Dados locais e descartáveis. A carteira real, estoque, trânsito e O.S. continuam em leitura direta do Supabase.</span>
+              <span>Cenários persistentes no Supabase. A carteira real, estoque, trânsito e O.S. continuam separados da simulação.</span>
             </div>
           </div>
           <div className="scenario-toolbar">
@@ -2863,7 +2910,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
               Nome do novo cenário
               <input value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} placeholder="Ex.: Projeção Setembro / Licitação X" />
             </label>
-            <button className="button primary" type="button" onClick={createScenario}>+ Criar cenário</button>
+            <button className="button primary" disabled={scenarioLoading || scenarioSaving} type="button" onClick={() => void createScenario()}>+ Criar cenário</button>
             <label>
               Cenário aplicado no MRP
               <select value={activeScenarioId} onChange={(event) => setActiveScenarioId(event.target.value)}>
@@ -2871,8 +2918,9 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                 {scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name}</option>)}
               </select>
             </label>
-            <button className="button danger" disabled={!activeScenario} type="button" onClick={deleteActiveScenario}>Excluir cenário</button>
+            <button className="button danger" disabled={!activeScenario || scenarioSaving} type="button" onClick={() => void deleteActiveScenario()}>Excluir cenário</button>
           </div>
+          {scenarioLoading ? <p className="mrp-data-state">Carregando cenários persistentes...</p> : null}
           {scenarioMessage ? <p className="mrp-data-state">{scenarioMessage}</p> : null}
         </div>
 
@@ -2892,8 +2940,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
             <div className="button-row">
               <button className="button secondary" type="button" onClick={downloadVehicleTemplate}>Baixar template de veículos</button>
               <input ref={vehicleInputRef} accept=".xlsx" hidden type="file" onChange={(event) => void importVehicleScenario(event.target.files?.[0])} />
-              <button className="button primary" disabled={!activeScenario} type="button" onClick={() => vehicleInputRef.current?.click()}>Importar veículos</button>
-              <button className="button danger-outline" disabled={!activeScenario?.vehicles.length} type="button" onClick={() => clearActiveScenario("vehicles")}>Limpar veículos</button>
+              <button className="button primary" disabled={!activeScenario || scenarioSaving} type="button" onClick={() => vehicleInputRef.current?.click()}>Importar veículos</button>
+              <button className="button danger-outline" disabled={!activeScenario?.vehicles.length || scenarioSaving} type="button" onClick={() => void clearActiveScenario("vehicles")}>Limpar veículos</button>
             </div>
             <p className="scenario-count"><strong>{activeScenario?.vehicles.length || 0}</strong> veículo(s) simulados no cenário selecionado.</p>
           </article>
@@ -2913,8 +2961,8 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
             <div className="button-row">
               <button className="button secondary" type="button" onClick={downloadMaterialTemplate}>Baixar template de materiais</button>
               <input ref={materialInputRef} accept=".xlsx" hidden type="file" onChange={(event) => void importMaterialScenario(event.target.files?.[0])} />
-              <button className="button primary" disabled={!activeScenario} type="button" onClick={() => materialInputRef.current?.click()}>Importar materiais</button>
-              <button className="button danger-outline" disabled={!activeScenario?.materials.length} type="button" onClick={() => clearActiveScenario("materials")}>Limpar materiais</button>
+              <button className="button primary" disabled={!activeScenario || scenarioSaving} type="button" onClick={() => materialInputRef.current?.click()}>Importar materiais</button>
+              <button className="button danger-outline" disabled={!activeScenario?.materials.length || scenarioSaving} type="button" onClick={() => void clearActiveScenario("materials")}>Limpar materiais</button>
             </div>
             <p className="scenario-count"><strong>{activeScenario?.materials.length || 0}</strong> necessidade(s) simulada(s) no cenário selecionado.</p>
           </article>
@@ -2928,7 +2976,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
           <div className="mrp-source-strip">
             <span>Base padrão: Supabase</span>
             <span>Simulação: somente quando selecionada</span>
-            <span>Exclusão: remove apenas dados locais do cenário</span>
+            <span>Exclusão: remove apenas os dados persistidos do cenário</span>
           </div>
         </div>
       </section>
