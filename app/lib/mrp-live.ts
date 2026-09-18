@@ -1,15 +1,19 @@
 export type MrpDemandSource = "FIRME" | "FORECAST_FIRME" | "FORECAST_PREDITIVO" | "SIMULACAO";
 export type MrpPeriodicity = "DIA" | "SEMANA" | "MES";
 
-export type MrpLiveInventory = { pn: string; description: string; unit: string; group: string; available: number };
+export type MrpLiveEquivalence = {
+  equivalenceGroupId?: string; equivalenceGroupCode?: string; equivalenceGroupName?: string;
+  equivalenceFunctionalUnit?: string; equivalenceFactor?: number; equivalenceMembers?: string[];
+};
+export type MrpLiveInventory = { pn: string; description: string; unit: string; group: string; available: number } & MrpLiveEquivalence;
 export type MrpLiveTransit = {
   pn: string; description: string; unit: string; quantity: number;
   deliveryDate: string | null; purchaseOrder: string; supplier: string;
-};
+} & MrpLiveEquivalence;
 export type MrpLiveDemand = {
   pn: string; description: string; unit: string; quantity: number;
   needDate: string | null; source: MrpDemandSource; reference: string;
-};
+} & MrpLiveEquivalence;
 export type MrpLiveSnapshot = {
   generatedAt: string;
   source: "SUPABASE";
@@ -26,6 +30,7 @@ export type MrpLiveSnapshot = {
 export type MrpLiveWeek = { key: string; label: string; startDate: string };
 export type MrpLiveAnalysisRow = {
   pn: string; description: string; unit: string; available: number;
+  equivalenceGroupId?: string; equivalenceGroupCode?: string; equivalenceGroupName?: string; equivalentMembers?: string[];
   firmDemand: number; forecastFirmDemand: number; forecastPredictiveDemand: number; simulationDemand: number;
   totalDemand: number; totalIncoming: number; totalSuggested: number;
   firstSuggestedWeek: string | null; projected: number[]; suggested: number[];
@@ -124,6 +129,50 @@ function read(bucket: Map<string, number[]>, pn: string, size: number) {
   return bucket.get(pn) ?? Array.from({ length: size }, () => 0);
 }
 
+type PlanningItem = MrpLiveInventory | MrpLiveTransit | MrpLiveDemand;
+type PlanningMeta = {
+  pn: string; description: string; unit: string; available: number;
+  equivalenceGroupId?: string; equivalenceGroupCode?: string; equivalenceGroupName?: string; equivalentMembers: Set<string>;
+};
+
+function equivalenceFactor(item: PlanningItem) {
+  const factor = numberOf(item.equivalenceFactor);
+  return factor > 0 ? factor : 1;
+}
+
+function planningKey(item: PlanningItem) {
+  const groupId = String(item.equivalenceGroupId ?? "").trim();
+  return groupId ? `EQ:${groupId}` : `SKU:${item.pn}`;
+}
+
+function planningQuantity(item: PlanningItem, quantity: number) {
+  return quantity / equivalenceFactor(item);
+}
+
+function mergeMeta(meta: Map<string, PlanningMeta>, key: string, item: PlanningItem, available?: number) {
+  const known = meta.get(key);
+  const isEquivalent = Boolean(String(item.equivalenceGroupId ?? "").trim());
+  const groupCode = String(item.equivalenceGroupCode ?? "").trim();
+  const groupName = String(item.equivalenceGroupName ?? "").trim();
+  const displayCode = isEquivalent ? (groupCode || `EQ ${String(item.equivalenceGroupId).slice(0, 8)}`) : item.pn;
+  const description = isEquivalent
+    ? `${groupName || "Grupo de equivalência"}${groupCode ? ` (${groupCode})` : ""}`
+    : item.description;
+  const members = known?.equivalentMembers ?? new Set<string>();
+  if (item.pn) members.add(item.pn);
+  (item.equivalenceMembers ?? []).forEach((member) => { if (member) members.add(member); });
+  meta.set(key, {
+    pn: known?.pn || displayCode,
+    description: known?.description || description || "SKU sem descrição",
+    unit: known?.unit || (isEquivalent ? String(item.equivalenceFunctionalUnit ?? "").trim() || item.unit : item.unit) || "UN",
+    available: (known?.available ?? 0) + (available ?? 0),
+    equivalenceGroupId: known?.equivalenceGroupId || (isEquivalent ? String(item.equivalenceGroupId) : undefined),
+    equivalenceGroupCode: known?.equivalenceGroupCode || (isEquivalent ? groupCode : undefined),
+    equivalenceGroupName: known?.equivalenceGroupName || (isEquivalent ? groupName : undefined),
+    equivalentMembers: members,
+  });
+}
+
 /** Read-only MRP I projection: it never changes purchase orders, stock or reservations. */
 export function buildMrpLivePlan(
   snapshot: MrpLiveSnapshot,
@@ -160,40 +209,40 @@ export function buildMrpLivePlan(
   const forecastPredictive = new Map<string, number[]>();
   const simulation = new Map<string, number[]>();
   const incoming = new Map<string, number[]>();
-  const meta = new Map<string, { description: string; unit: string; available: number }>();
+  const meta = new Map<string, PlanningMeta>();
   let outsideHorizonDemand = 0;
 
-  snapshot.inventory.forEach((item) => meta.set(item.pn, {
-    description: item.description, unit: item.unit, available: numberOf(item.available),
-  }));
+  snapshot.inventory.forEach((item) => {
+    mergeMeta(meta, planningKey(item), item, planningQuantity(item, numberOf(item.available)));
+  });
   snapshot.demands.forEach((item) => {
-    const quantity = numberOf(item.quantity);
+    const key = planningKey(item);
+    const quantity = planningQuantity(item, numberOf(item.quantity));
     const index = bucketIndex(item.needDate, start, count, periodicity);
     if (index < 0) { outsideHorizonDemand += quantity; return; }
     const bucket = item.source === "FIRME" ? firm : item.source === "FORECAST_FIRME" ? forecastFirm : item.source === "FORECAST_PREDITIVO" ? forecastPredictive : simulation;
-    add(bucket, item.pn, index, quantity, count);
-    const known = meta.get(item.pn);
-    meta.set(item.pn, { description: known?.description || item.description, unit: known?.unit || item.unit, available: known?.available ?? 0 });
+    add(bucket, key, index, quantity, count);
+    mergeMeta(meta, key, item);
   });
   snapshot.transit.forEach((item) => {
+    const key = planningKey(item);
     const index = bucketIndex(item.deliveryDate, start, count, periodicity);
     if (index < 0) return;
-    add(incoming, item.pn, index, numberOf(item.quantity), count);
-    const known = meta.get(item.pn);
-    meta.set(item.pn, { description: known?.description || item.description, unit: known?.unit || item.unit, available: known?.available ?? 0 });
+    add(incoming, key, index, planningQuantity(item, numberOf(item.quantity)), count);
+    mergeMeta(meta, key, item);
   });
 
   const pns = new Set([...meta.keys(), ...firm.keys(), ...forecastFirm.keys(), ...forecastPredictive.keys(), ...simulation.keys(), ...incoming.keys()]);
-  const rows = [...pns].map((pn) => {
-    const firmByWeek = read(firm, pn, count);
-    const forecastFirmByWeek = read(forecastFirm, pn, count);
-    const forecastPredictiveByWeek = read(forecastPredictive, pn, count);
-    const simulationByWeek = read(simulation, pn, count);
-    const incomingByWeek = read(incoming, pn, count);
+  const rows = [...pns].map((key) => {
+    const firmByWeek = read(firm, key, count);
+    const forecastFirmByWeek = read(forecastFirm, key, count);
+    const forecastPredictiveByWeek = read(forecastPredictive, key, count);
+    const simulationByWeek = read(simulation, key, count);
+    const incomingByWeek = read(incoming, key, count);
     const totalByWeek = weeks.map((_, index) => firmByWeek[index] + forecastFirmByWeek[index] + forecastPredictiveByWeek[index] + simulationByWeek[index]);
     const projected: number[] = [];
     const suggested = Array.from({ length: count }, () => 0);
-    let balance = meta.get(pn)?.available ?? 0;
+    let balance = meta.get(key)?.available ?? 0;
     totalByWeek.forEach((demand, index) => {
       balance = balance - demand + incomingByWeek[index] - demand * safety;
       if (balance < 0) { suggested[index] = -balance; balance = 0; }
@@ -202,7 +251,11 @@ export function buildMrpLivePlan(
     const totalSuggested = suggested.reduce((total, value) => total + value, 0);
     const first = suggested.findIndex((value) => value > 0);
     return {
-      pn, description: meta.get(pn)?.description || "SKU sem descrição", unit: meta.get(pn)?.unit || "UN", available: meta.get(pn)?.available ?? 0,
+      pn: meta.get(key)?.pn || key.replace(/^SKU:/, ""), description: meta.get(key)?.description || "SKU sem descrição", unit: meta.get(key)?.unit || "UN", available: meta.get(key)?.available ?? 0,
+      equivalenceGroupId: meta.get(key)?.equivalenceGroupId,
+      equivalenceGroupCode: meta.get(key)?.equivalenceGroupCode,
+      equivalenceGroupName: meta.get(key)?.equivalenceGroupName,
+      equivalentMembers: meta.get(key)?.equivalentMembers.size ? [...meta.get(key)!.equivalentMembers].sort() : undefined,
       firmDemand: firmByWeek.reduce((total, value) => total + value, 0),
       forecastFirmDemand: forecastFirmByWeek.reduce((total, value) => total + value, 0),
       forecastPredictiveDemand: forecastPredictiveByWeek.reduce((total, value) => total + value, 0),

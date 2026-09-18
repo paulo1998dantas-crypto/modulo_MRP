@@ -98,6 +98,17 @@ async function readRows(table: string, select: string): Promise<Row[]> {
   return rows;
 }
 
+/** New Cadastro tables are optional while the shared migration is rolling out. */
+async function readOptionalRows(table: string, select: string): Promise<Row[]> {
+  try {
+    return await readRows(table, select);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (message.includes(": 404") || message.includes("PGRST205")) return [];
+    throw error;
+  }
+}
+
 function explodeCoverage(
   code: string,
   quantity: number,
@@ -132,7 +143,7 @@ export async function GET() {
         { status: 401, headers: { "Cache-Control": "no-store" } },
       );
     }
-    const [skus, balances, bom, cadastroBom, orders, documents, movements, purchaseOrders, purchaseLines, forecasts, forecastNeeds] = await Promise.all([
+    const [skus, balances, bom, cadastroBom, orders, documents, movements, purchaseOrders, purchaseLines, forecasts, forecastNeeds, equivalenceGroups, equivalenceMembers] = await Promise.all([
       readRows("skus", "id,sku,descricao,unidade,grupo,active"),
       readRows("stock_balances", "sku_id,saldo_atual"),
       readRows("bom_components", "item_sku_id,component_sku_id,quantidade"),
@@ -144,6 +155,8 @@ export async function GET() {
       readRows("erp_purchase_order_lines", "purchase_order_id,sku_id,sku_codigo,descricao_original,unidade,quantidade_pedida,quantidade_recebida,data_necessidade,status"),
       readRows("suprimentos_forecasts", "id,numero_forecast,tipo_demanda,status,data_confirmacao,data_prevista_chegada,data_entrega_prevista"),
       readRows("suprimentos_forecast_necessidades", "forecast_id,sku_codigo,descricao,unidade,quantidade_planejada"),
+      readOptionalRows("cadastro_grupos_equivalencia", "id,codigo,nome,unidade_funcional,ativo"),
+      readOptionalRows("cadastro_equivalencia_membros", "grupo_id,sku,fator_unidade_funcional,prioridade,ativo"),
     ]);
 
     const skuById = new Map<number, Row>();
@@ -154,6 +167,50 @@ export async function GET() {
       if (id) skuById.set(id, sku);
       if (code) skuByCode.set(code, sku);
     });
+
+    type EquivalentMember = { group: Row; sku: string; factor: number };
+    const activeEquivalentGroups = new Map<string, Row>();
+    equivalenceGroups.forEach((group) => {
+      const id = text(group.id);
+      if (id && group.ativo !== false) activeEquivalentGroups.set(id, group);
+    });
+    const equivalentBySku = new Map<string, EquivalentMember[]>();
+    equivalenceMembers.forEach((member) => {
+      if (member.ativo === false) return;
+      const group = activeEquivalentGroups.get(text(member.grupo_id));
+      const sku = codeKey(member.sku);
+      const factor = numberOf(member.fator_unidade_funcional);
+      if (!group || !sku || factor <= 0) return;
+      const values = equivalentBySku.get(sku) ?? [];
+      values.push({ group, sku, factor });
+      equivalentBySku.set(sku, values);
+    });
+    const equivalentMembersByGroup = new Map<string, string[]>();
+    equivalentBySku.forEach((members, sku) => members.forEach((member) => {
+      const id = text(member.group.id);
+      const values = equivalentMembersByGroup.get(id) ?? [];
+      if (!values.includes(sku)) values.push(sku);
+      equivalentMembersByGroup.set(id, values);
+    }));
+    const ambiguousEquivalentSkus = new Set(
+      [...equivalentBySku.entries()].filter(([, members]) => members.length > 1).map(([sku]) => sku)
+    );
+    const equivalenceForSku = (sku: string, explicitGroupId = "") => {
+      const candidates = equivalentBySku.get(codeKey(sku)) ?? [];
+      const matched = explicitGroupId
+        ? candidates.find((candidate) => text(candidate.group.id) === text(explicitGroupId))
+        : candidates.length === 1 ? candidates[0] : undefined;
+      if (!matched) return undefined;
+      const groupId = text(matched.group.id);
+      return {
+        equivalenceGroupId: groupId,
+        equivalenceGroupCode: text(matched.group.codigo),
+        equivalenceGroupName: text(matched.group.nome),
+        equivalenceFunctionalUnit: text(matched.group.unidade_funcional) || "UN",
+        equivalenceFactor: matched.factor,
+        equivalenceMembers: [...(equivalentMembersByGroup.get(groupId) ?? [])].sort(),
+      };
+    };
 
     const bomByParent = new Map<string, Array<{ code: string; quantity: number }>>();
     bom.forEach((component) => {
@@ -203,6 +260,7 @@ export async function GET() {
         unit: text(sku.unidade) || "UN",
         group: text(sku.grupo),
         available: balanceBySku.get(numberOf(sku.id)) ?? 0,
+        ...equivalenceForSku(codeKey(sku.sku)),
       }))
       .filter((sku) => sku.pn);
 
@@ -268,12 +326,13 @@ export async function GET() {
     activeOrders.forEach((order) => {
       const document = selectedDocuments.get(uuidKey(order.id));
       if (!document) return;
-      const required = new Map<string, { quantity: number; description: string; unit: string }>();
+      const required = new Map<string, { quantity: number; description: string; unit: string; equivalence?: ReturnType<typeof equivalenceForSku> }>();
       parseComposition(document.composicao).forEach((line) => {
         const code = codeKey(line.codigo);
         const quantity = numberOf(line.qtd ?? line.quantidade);
         if (!code || quantity <= 0) return;
-        const current = required.get(code) ?? { quantity: 0, description: text(line.descricao), unit: text(line.unidade) || "UN" };
+        const equivalent = equivalenceForSku(code, text(line.equivalence_group_id));
+        const current = required.get(code) ?? { quantity: 0, description: text(line.descricao), unit: text(line.unidade) || "UN", equivalence: equivalent };
         current.quantity += quantity;
         required.set(code, current);
       });
@@ -290,6 +349,7 @@ export async function GET() {
           needDate: isoDate(order.data_entrega) || isoDate(order.data_comercial_prevista),
           source: "FIRME",
           reference: `O.S. ${text(order.numero_os)}`,
+          ...(line.equivalence ?? {}),
         });
       });
     });
@@ -313,6 +373,7 @@ export async function GET() {
         needDate: isoDate(forecast.data_entrega_prevista) || isoDate(forecast.data_prevista_chegada) || isoDate(forecast.data_confirmacao),
         source: kind.includes("AGUARDANDO") || kind.includes("CONFIRM") ? "FORECAST_FIRME" : "FORECAST_PREDITIVO",
         reference: `Forecast ${text(forecast.numero_forecast)}`,
+        ...equivalenceForSku(pn),
       });
     });
 
@@ -336,6 +397,7 @@ export async function GET() {
         deliveryDate: isoDate(line.data_necessidade) || isoDate(order.data_necessidade),
         purchaseOrder: text(order.numero_oc),
         supplier: text(order.fornecedor_nome),
+        ...equivalenceForSku(pn),
       });
     });
 
@@ -354,6 +416,9 @@ export async function GET() {
       skippedNoSku ? `${skippedNoSku} linha(s) sem SKU válido foi(ram) ignorada(s).` : "",
       cadastroBomFallbackParents
         ? `${cadastroBomFallbackParents} B.O.M.(s) do Cadastro foi(ram) vinculada(s) automaticamente pelo SKU.`
+        : "",
+      ambiguousEquivalentSkus.size
+        ? `${ambiguousEquivalentSkus.size} SKU(s) pertencem a mais de um grupo equivalente e foram mantidos individualmente no MRP; escolha um grupo único por aplicação.`
         : "",
     ].filter(Boolean);
 

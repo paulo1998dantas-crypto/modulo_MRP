@@ -2554,7 +2554,7 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
     if (!mrpIPlan) return;
     const periods = mrpIPlan.weeks;
     const purchaseSummary = [
-      ["PERIODO", "SKU", "DESCRICAO", "UN", "SUGERIDO COMPRAR", "DEMANDA REAL O.S.", "FORECAST FIRME", "FORECAST PREDITIVO", "SIMULACAO", "TRANSITO"],
+      ["PERIODO", "SKU / GRUPO", "DESCRICAO", "UN", "SUGERIDO COMPRAR", "DEMANDA REAL O.S.", "FORECAST FIRME", "FORECAST PREDITIVO", "SIMULACAO", "TRANSITO", "GRUPO EQUIVALENTE", "SKUS EQUIVALENTES"],
       ...mrpIPlan.rows.flatMap((row) => periods.map((period, index) => {
         const suggested = row.suggested[index] || 0;
         const demand = row.firmByWeek[index] || 0;
@@ -2563,12 +2563,12 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
         const simulation = row.simulationByWeek[index] || 0;
         const transit = row.incoming[index] || 0;
         if (!suggested && !demand && !forecast && !predictive && !simulation && !transit) return [];
-        return [[period.label, row.pn, row.description, row.unit, suggested, demand, forecast, predictive, simulation, transit]];
+        return [[period.label, row.pn, row.description, row.unit, suggested, demand, forecast, predictive, simulation, transit, row.equivalenceGroupCode || "", (row.equivalentMembers || []).join(", ")]];
       }).filter((row) => row.length > 0)),
     ];
     const summaryRows = [
-      ["SKU", "DESCRICAO", "UN", "DISPONIVEL", "DEMANDA REAL O.S.", "FORECAST FIRME", "FORECAST PREDITIVO", "SIMULACAO", "TRANSITO", "SUGERIDO COMPRAR", "PRIMEIRO PERIODO"],
-      ...mrpIPlan.rows.map((row) => [row.pn, row.description, row.unit, row.available, row.firmDemand, row.forecastFirmDemand, row.forecastPredictiveDemand, row.simulationDemand, row.totalIncoming, row.totalSuggested, row.firstSuggestedWeek || "—"]),
+      ["SKU / GRUPO", "DESCRICAO", "UN", "DISPONIVEL", "DEMANDA REAL O.S.", "FORECAST FIRME", "FORECAST PREDITIVO", "SIMULACAO", "TRANSITO", "SUGERIDO COMPRAR", "PRIMEIRO PERIODO", "GRUPO EQUIVALENTE", "SKUS EQUIVALENTES"],
+      ...mrpIPlan.rows.map((row) => [row.pn, row.description, row.unit, row.available, row.firmDemand, row.forecastFirmDemand, row.forecastPredictiveDemand, row.simulationDemand, row.totalIncoming, row.totalSuggested, row.firstSuggestedWeek || "—", row.equivalenceGroupCode || "", (row.equivalentMembers || []).join(", ")]),
     ];
     downloadXlsx(`MRP_I_Resumo_Compras_${mrpPeriodicity.toLowerCase()}.xlsx`, [
       { name: "Resumo_Compras", rows: summaryRows },
@@ -3112,7 +3112,11 @@ function MrpWorkspace({ user, onSignOut }: { user: MrpSessionUser; onSignOut: ()
                     </td>
                     <td>
                       {row.description}
-                      <small>Necessidade líquida, já coberta por empenhos e baixas vinculados</small>
+                      {row.equivalenceGroupCode ? (
+                        <small>{`Grupo equivalente ${row.equivalenceGroupCode}: ${(row.equivalentMembers || []).join(", ")} · quantidades na unidade funcional`}</small>
+                      ) : (
+                        <small>Necessidade líquida, já coberta por empenhos e baixas vinculados</small>
+                      )}
                     </td>
                     <td>{row.unit}</td>
                     <td>{formatQuantity(row.available)}</td>
